@@ -3,4 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net46</TargetFramework>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Microsoft.Metadata.Visualizer\Microsoft.Metadata.Visualizer.csproj" />
+  </ItemGroup>
 </Project>

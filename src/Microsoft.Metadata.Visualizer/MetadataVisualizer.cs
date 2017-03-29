@@ -73,8 +73,8 @@ namespace Microsoft.Metadata.Tools
 
         private MetadataVisualizer(TextWriter writer, IReadOnlyList<MetadataReader> readers, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
         {
-            _writer = writer;
-            _readers = readers;
+            _writer = writer ?? throw new ArgumentNullException(nameof(writer));
+            _readers = readers ?? throw new ArgumentNullException(nameof(readers));
             _options = options;
             _signatureVisualizer = new SignatureVisualizer(this);
 
@@ -88,7 +88,7 @@ namespace Microsoft.Metadata.Tools
         }
 
         public MetadataVisualizer(MetadataReader reader, TextWriter writer, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
-            : this(writer, new[] { reader }, options)
+            : this(writer, new[] { reader ?? throw new ArgumentNullException(nameof(reader)) }, options)
         {
             _reader = reader;
         }
