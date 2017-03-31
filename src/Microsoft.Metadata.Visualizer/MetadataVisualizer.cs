@@ -332,58 +332,13 @@ namespace Microsoft.Metadata.Tools
             return value.ToString();
         }
 
-        private string Literal(Func<StringHandle> getHandle)
-        {
-            StringHandle handle;
-            try
-            {
-                handle = getHandle();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return Literal(handle, BlobKind.None, (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((StringHandle)h)) + "'");
-        }
-
-        private string Literal(Func<NamespaceDefinitionHandle> getHandle)
-        {
-            NamespaceDefinitionHandle handle;
-            try
-            {
-                handle = getHandle();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return Literal(handle, BlobKind.None, (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((NamespaceDefinitionHandle)h)) + "'");
-        }
-
-        private string Literal(Func<GuidHandle> getHandle)
-        {
-            GuidHandle handle;
-            try
-            {
-                handle = getHandle();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return Literal(handle, BlobKind.None, (r, h) => "{" + r.GetGuid((GuidHandle)h) + "}");
-        }
-
         private static readonly Guid s_CSharpGuid = new Guid("3f5162f8-07c6-11d3-9053-00c04fa302a1");
         private static readonly Guid s_visualBasicGuid = new Guid("3a12d0b8-c26c-11d0-b442-00a0244a1dd2");
         private static readonly Guid s_FSharpGuid = new Guid("ab4f38c9-b6e6-43ba-be3b-58080b2ccce3");
         private static readonly Guid s_sha1Guid = new Guid("ff1816ec-aa5e-4d10-87f7-6f4963833460");
         private static readonly Guid s_sha256Guid = new Guid("8829d00f-11b8-4213-878b-770e8597ac16");
 
-        private string GetLanguage(Guid guid)
+        private static string GetLanguage(Guid guid)
         {
             if (guid == s_CSharpGuid) return "C#";
             if (guid == s_visualBasicGuid) return "Visual Basic";
@@ -392,7 +347,7 @@ namespace Microsoft.Metadata.Tools
             return "{" + guid + "}";
         }
 
-        private string GetHashAlgorithm(Guid guid)
+        private static string GetHashAlgorithm(Guid guid)
         {
             if (guid == s_sha1Guid) return "SHA-1";
             if (guid == s_sha256Guid) return "SHA-256";
@@ -415,93 +370,105 @@ namespace Microsoft.Metadata.Tools
             return "{" + guid + "}";
         }
 
-        private string Language(Func<Handle> getHandle)
-        {
-            return Literal(getHandle, BlobKind.None, (r, h) => GetLanguage(r.GetGuid((GuidHandle)h)));
-        }
+        private string Language(Func<GuidHandle> getHandle) =>
+            Literal(() => getHandle(), (r, h) => GetLanguage(r.GetGuid((GuidHandle)h)));
 
-        private string HashAlgorithm(Func<Handle> getHandle)
-        {
-            return Literal(getHandle, BlobKind.None, (r, h) => GetHashAlgorithm(r.GetGuid((GuidHandle)h)));
-        }
+        private string HashAlgorithm(Func<GuidHandle> getHandle) => 
+            Literal(() => getHandle(), (r, h) => GetHashAlgorithm(r.GetGuid((GuidHandle)h)));
 
-        private string CustomDebugInformationKind(Func<Handle> getHandle)
-        {
-            return Literal(getHandle, BlobKind.None, (r, h) => GetCustomDebugInformationKind(r.GetGuid((GuidHandle)h)));
-        }
+        private string CustomDebugInformationKind(Func<GuidHandle> getHandle) =>
+            Literal(() => getHandle(), (r, h) => GetCustomDebugInformationKind(r.GetGuid((GuidHandle)h)));
 
-        private string Literal(Func<DocumentNameBlobHandle> getHandle)
-        {
-            return Literal(() => (BlobHandle)getHandle(), BlobKind.DocumentName, (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((DocumentNameBlobHandle)(BlobHandle)h)) + "'");
-        }
+        private string DocumentName(Func<DocumentNameBlobHandle> getHandle) =>
+            Literal(() => getHandle(), BlobKind.DocumentName, (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((DocumentNameBlobHandle)h)) + "'");
 
-        private string LiteralUtf8Blob(Func<Handle> getHandle, BlobKind kind)
+        private string LiteralUtf8Blob(Func<BlobHandle> getHandle, BlobKind kind)
         {
             return Literal(getHandle, kind, (r, h) =>
             {
-                var bytes = r.GetBlobBytes((BlobHandle)h);
+                var bytes = r.GetBlobBytes(h);
                 return "'" + Encoding.UTF8.GetString(bytes, 0, bytes.Length) + "'";
             });
         }
 
-        private string Signature(Func<BlobHandle> getHandle, BlobKind kind)
+        private string FieldSignature(Func<BlobHandle> getHandle) =>
+            Literal(getHandle, BlobKind.FieldSignature, (r, h) => Signature(r, h, BlobKind.FieldSignature));
+
+        private string MethodSignature(Func<BlobHandle> getHandle) =>
+            Literal(getHandle, BlobKind.MethodSignature, (r, h) => Signature(r, h, BlobKind.MethodSignature));
+
+        private string StandaloneSignature(Func<BlobHandle> getHandle) =>
+            Literal(getHandle, BlobKind.StandAloneSignature, (r, h) => Signature(r, h, BlobKind.StandAloneSignature));
+
+        private string MemberReferenceSignature(Func<BlobHandle> getHandle) =>
+            Literal(getHandle, BlobKind.MemberRefSignature, (r, h) => Signature(r, h, BlobKind.MemberRefSignature));
+
+        private string MethodSpecificationSignature(Func<BlobHandle> getHandle) =>
+            Literal(getHandle, BlobKind.MethodSpec, (r, h) => Signature(r, h, BlobKind.MethodSpec));
+
+        private string TypeSpecificationSignature(Func<BlobHandle> getHandle) =>
+            Literal(getHandle, BlobKind.TypeSpec, (r, h) => Signature(r, h, BlobKind.TypeSpec));
+
+        public string MethodSignature(BlobHandle signatureHandle) =>
+            Literal(signatureHandle, (r, h) => Signature(r, (BlobHandle)h, BlobKind.MethodSignature));
+
+        public string StandaloneSignature(BlobHandle signatureHandle) =>
+            Literal(signatureHandle, (r, h) => Signature(r, (BlobHandle)h, BlobKind.StandAloneSignature));
+
+        public string MemberReferenceSignature(BlobHandle signatureHandle) =>
+            Literal(signatureHandle, (r, h) => Signature(r, (BlobHandle)h, BlobKind.MemberRefSignature));
+
+        public string MethodSpecificationSignature(BlobHandle signatureHandle) =>
+            Literal(signatureHandle, (r, h) => Signature(r, (BlobHandle)h, BlobKind.MethodSpec));
+
+        public string TypeSpecificationSignature(BlobHandle signatureHandle) =>
+            Literal(signatureHandle, (r, h) => Signature(r, (BlobHandle)h, BlobKind.TypeSpec));
+
+        private string Signature(MetadataReader reader, BlobHandle signatureHandle, BlobKind kind)
         {
-            BlobHandle handle;
             try
             {
-                handle = getHandle();
+                var sigReader = reader.GetBlobReader(signatureHandle);
+                var decoder = new SignatureDecoder<string, object>(_signatureVisualizer, reader, genericContext: null);
+                switch (kind)
+                {
+                    case BlobKind.FieldSignature:
+                        return decoder.DecodeFieldSignature(ref sigReader);
+
+                    case BlobKind.MethodSignature:
+                        return MethodSignature(decoder.DecodeMethodSignature(ref sigReader));
+
+                    case BlobKind.StandAloneSignature:
+                        return string.Join(", ", decoder.DecodeLocalSignature(ref sigReader));
+
+                    case BlobKind.MemberRefSignature:
+                        var header = sigReader.ReadSignatureHeader();
+                        sigReader.Offset = 0;
+                        switch (header.Kind)
+                        {
+                            case SignatureKind.Field:
+                                return decoder.DecodeFieldSignature(ref sigReader);
+
+                            case SignatureKind.Method:
+                                return MethodSignature(decoder.DecodeMethodSignature(ref sigReader));
+                        }
+
+                        throw new BadImageFormatException();
+
+                    case BlobKind.MethodSpec:
+                        return string.Join(", ", decoder.DecodeMethodSpecificationSignature(ref sigReader));
+
+                    case BlobKind.TypeSpec:
+                        return decoder.DecodeType(ref sigReader, allowTypeSpecifications: false);
+
+                    default:
+                        throw ExceptionUtilities.UnexpectedValue(kind);
+                }
             }
             catch (BadImageFormatException)
             {
-                return "<bad metadata>";
+                return $"<bad signature: {BitConverter.ToString(reader.GetBlobBytes(signatureHandle))}>";
             }
-
-            return Literal(handle, kind, (r, h) =>
-            {
-                try
-                {
-                    var sigReader = r.GetBlobReader((BlobHandle)h);
-                    var decoder = new SignatureDecoder<string, object>(_signatureVisualizer, r, genericContext: null);
-                    switch (kind)
-                    {
-                        case BlobKind.FieldSignature:
-                            return decoder.DecodeFieldSignature(ref sigReader);
-
-                        case BlobKind.MethodSignature:
-                            return MethodSignature(decoder.DecodeMethodSignature(ref sigReader));
-
-                        case BlobKind.StandAloneSignature:
-                            return string.Join(", ", decoder.DecodeLocalSignature(ref sigReader));
-
-                        case BlobKind.MemberRefSignature:
-                            var header = sigReader.ReadSignatureHeader();
-                            sigReader.Offset = 0;
-                            switch (header.Kind)
-                            {
-                                case SignatureKind.Field:
-                                    return decoder.DecodeFieldSignature(ref sigReader);
-
-                                case SignatureKind.Method:
-                                    return MethodSignature(decoder.DecodeMethodSignature(ref sigReader));
-                            }
-
-                            throw new BadImageFormatException();
-
-                        case BlobKind.MethodSpec:
-                            return string.Join(", ", decoder.DecodeMethodSpecificationSignature(ref sigReader));
-
-                        case BlobKind.TypeSpec:
-                            return decoder.DecodeType(ref sigReader, allowTypeSpecifications: false);
-
-                        default:
-                            throw ExceptionUtilities.UnexpectedValue(kind);
-                    }
-                }
-                catch (BadImageFormatException)
-                {
-                    return $"<bad signature: {BitConverter.ToString(r.GetBlobBytes((BlobHandle)h))}>";
-                }
-            });
         }
 
         private static string MethodSignature(MethodSignature<string> signature)
@@ -530,7 +497,10 @@ namespace Microsoft.Metadata.Tools
             return builder.ToString();
         }
 
-        private string Literal(Func<BlobHandle> getHandle, BlobKind kind)
+        private string Literal(Func<BlobHandle> getHandle, BlobKind kind) => 
+            Literal(getHandle, kind, (r, h) => BitConverter.ToString(r.GetBlobBytes(h)));
+
+        private string Literal(Func<BlobHandle> getHandle, BlobKind kind, Func<MetadataReader, BlobHandle, string> getValue)
         {
             BlobHandle handle;
             try
@@ -542,10 +512,24 @@ namespace Microsoft.Metadata.Tools
                 return "<bad metadata>";
             }
 
-            return Literal(handle, kind, (r, h) => BitConverter.ToString(r.GetBlobBytes((BlobHandle)h)));
+            if (!handle.IsNil && kind != BlobKind.None)
+            {
+                _blobKinds[handle] = kind;
+            }
+
+            return Literal(handle, (r, h) => getValue(r, (BlobHandle)h));
         }
 
-        private string Literal(Func<Handle> getHandle, BlobKind kind, Func<MetadataReader, Handle, string> getValue)
+        private string Literal(Func<StringHandle> getHandle) => 
+            Literal(() => getHandle(), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((StringHandle)h)) + "'");
+
+        private string Literal(Func<NamespaceDefinitionHandle> getHandle) =>
+            Literal(() => getHandle(), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((NamespaceDefinitionHandle)h)) + "'");
+
+        private string Literal(Func<GuidHandle> getHandle) => 
+            Literal(() => getHandle(), (r, h) => "{" + r.GetGuid((GuidHandle)h) + "}");
+
+        private string Literal(Func<Handle> getHandle, Func<MetadataReader, Handle, string> getValue)
         {
             Handle handle;
             try
@@ -557,19 +541,14 @@ namespace Microsoft.Metadata.Tools
                 return "<bad metadata>";
             }
 
-            return Literal(handle, kind, getValue);
+            return Literal(handle, getValue);
         }
 
-        private string Literal(Handle handle, BlobKind kind, Func<MetadataReader, Handle, string> getValue)
+        private string Literal(Handle handle, Func<MetadataReader, Handle, string> getValue)
         {
             if (handle.IsNil)
             {
                 return "nil";
-            }
-
-            if (kind != BlobKind.None)
-            {
-                _blobKinds[(BlobHandle)handle] = kind;
             }
 
             if (_aggregator != null)
@@ -993,7 +972,7 @@ namespace Microsoft.Metadata.Tools
 
                 AddRow(
                     Literal(() => entry.Name),
-                    Signature(() => entry.Signature, BlobKind.FieldSignature),
+                    FieldSignature(() => entry.Signature),
                     EnumValue<int>(() => entry.Attributes),
                     Literal(() => entry.GetMarshallingDescriptor(), BlobKind.Marshalling),
                     ToString(() => 
@@ -1030,7 +1009,7 @@ namespace Microsoft.Metadata.Tools
 
                 AddRow(
                     Literal(() => entry.Name),
-                    Signature(() => entry.Signature, BlobKind.MethodSignature),
+                    MethodSignature(() => entry.Signature),
                     Hex(entry.RelativeVirtualAddress),
                     TokenRange(entry.GetParameters(), h => h),
                     TokenRange(entry.GetGenericParameters(), h => h),
@@ -1084,7 +1063,7 @@ namespace Microsoft.Metadata.Tools
                 AddRow(
                     Token(() => entry.Parent),
                     Literal(() => entry.Name),
-                    Signature(() => entry.Signature, BlobKind.MemberRefSignature)
+                    MemberReferenceSignature(() => entry.Signature)
                 );
             }
 
@@ -1164,7 +1143,7 @@ namespace Microsoft.Metadata.Tools
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.StandAloneSig); i <= count; i++)
             {
                 var entry = _reader.GetStandaloneSignature(MetadataTokens.StandaloneSignatureHandle(i));
-                AddRow(Signature(() => entry.Signature, BlobKind.StandAloneSignature));
+                AddRow(StandaloneSignature(() => entry.Signature));
             }
 
             WriteRows("StandAloneSig (0x11):");
@@ -1264,7 +1243,7 @@ namespace Microsoft.Metadata.Tools
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.TypeSpec); i <= count; i++)
             {
                 var entry = _reader.GetTypeSpecification(MetadataTokens.TypeSpecificationHandle(i));
-                AddRow(Signature(() => entry.Signature, BlobKind.TypeSpec));
+                AddRow(TypeSpecificationSignature(() => entry.Signature));
             }
 
             WriteRows("TypeSpec (0x1b):");
@@ -1492,7 +1471,7 @@ namespace Microsoft.Metadata.Tools
 
                 AddRow(
                     Token(() => entry.Method),
-                    Signature(() => entry.Signature, BlobKind.MethodSpec)
+                    MethodSpecificationSignature(() => entry.Signature)
                 );
             }
 
@@ -1705,7 +1684,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetDocument(handle);
 
                 AddRow(
-                    Literal(() => entry.Name),
+                    DocumentName(() => entry.Name),
                     Language(() => entry.Language),
                     HashAlgorithm(() => entry.HashAlgorithm),
                     Literal(() => entry.Hash, BlobKind.DocumentHash)
@@ -2055,7 +2034,7 @@ namespace Microsoft.Metadata.Tools
 
             if (!body.LocalSignature.IsNil)
             {
-                builder.AppendFormat("  Locals: {0}", Signature(() => GetLocalSignature(body.LocalSignature), BlobKind.StandAloneSignature));
+                builder.AppendFormat("  Locals: {0}", StandaloneSignature(() => GetLocalSignature(body.LocalSignature)));
                 builder.AppendLine();
             }
 
