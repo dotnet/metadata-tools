@@ -10,7 +10,7 @@ internal sealed class Arguments
 {
     public bool Recursive { get; private set; }
     public string Path { get; private set; }
-    public IEnumerable<Tuple<string, string>> EncDeltas { get; private set; }
+    public IReadOnlyList<(string MetadataPath, string ILPathOpt)> EncDeltas { get; private set; }
     public HashSet<int> SkipGenerations { get; private set; }
     public bool DisplayStatistics { get; private set; }
     public bool DisplayAssemblyReferences { get; private set; }
@@ -57,10 +57,10 @@ If /g is specified the path must be baseline PE file (generation 0).
             (from arg in args
              where arg.StartsWith("/g:", StringComparison.Ordinal)
              let value = arg.Substring("/g:".Length).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-             select (value.Length >= 1 && value.Length <= 2) ? Tuple.Create(value[0], value.Length > 1 ? value[1] : null) : null).
+             select (value.Length >= 1 && value.Length <= 2) ? (value[0], value.Length > 1 ? value[1] : null) : default((string, string))).
              ToArray();
 
-        if (result.EncDeltas.Any(value => value == null))
+        if (result.EncDeltas.Any(value => value.MetadataPath == null))
         {
             return null;
         }
@@ -81,6 +81,11 @@ If /g is specified the path must be baseline PE file (generation 0).
         result.DisplayStatistics = ParseFlagArg(args, "stats", defaultValue: result.Recursive && !findRefs);
         result.DisplayAssemblyReferences = ParseFlagArg(args, "stats", defaultValue: !findRefs);
         result.OutputPath = ParseValueArg(args, "out");
+
+        if (result.DisplayEmbeddedPdb && result.EncDeltas.Count > 0)
+        {
+            return null;
+        }
 
         return result;
     }

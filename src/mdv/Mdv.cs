@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -15,12 +16,20 @@ namespace Microsoft.Metadata.Tools
 {
     internal sealed class Mdv : IDisposable
     {
-        private class GenerationData
+        private sealed class GenerationData
         {
-            public MetadataReader MetadataReader;
-            public PEReader PEReaderOpt;
-            public byte[] DeltaILOpt;
-            public IDisposable MemoryOwner;
+            public readonly IDisposable MemoryOwner;
+            public readonly MetadataReader MetadataReader;
+            public readonly PEReader PEReaderOpt;
+            public readonly byte[] ILDeltaOpt;
+
+            public GenerationData(IDisposable memoryOwner, MetadataReader metadataReader, PEReader peReader = null, byte[] ilDelta = null)
+            {
+                MemoryOwner = memoryOwner;
+                MetadataReader = metadataReader;
+                PEReaderOpt = peReader;
+                ILDeltaOpt = ilDelta;
+            }
         }
 
         private readonly Arguments _arguments;
@@ -72,7 +81,7 @@ namespace Microsoft.Metadata.Tools
             }
         }
 
-        private static bool IsPE(Stream stream)
+        private static bool IsPEStream(Stream stream)
         {
             long oldPosition = stream.Position;
             bool result = stream.ReadByte() == 'M' && stream.ReadByte() == 'Z';
@@ -88,17 +97,15 @@ namespace Microsoft.Metadata.Tools
             return result;
         }
 
-        private static GenerationData ReadFile(string path, bool embeddedPdb)
+        private static GenerationData ReadBaseline(string peFilePath, bool embeddedPdb)
         {
             try
             {
-                var generation = new GenerationData();
-                var stream = File.OpenRead(path);
+                var stream = File.OpenRead(peFilePath);
 
-                if (IsPE(stream))
+                if (IsPEStream(stream))
                 {
                     var peReader = new PEReader(stream);
-                    generation.PEReaderOpt = peReader;
 
                     if (embeddedPdb)
                     {
@@ -114,33 +121,69 @@ namespace Microsoft.Metadata.Tools
                         }
 
                         var provider = peReader.ReadEmbeddedPortablePdbDebugDirectoryData(embeddedEntries[0]);
-                        generation.MetadataReader = provider.GetMetadataReader();
-                        generation.MemoryOwner = provider;
+
+                        return new GenerationData(provider, provider.GetMetadataReader(), peReader);
                     }
                     else
                     {
-                        generation.MetadataReader = peReader.GetMetadataReader();
-                        generation.MemoryOwner = peReader;
+                        return new GenerationData(peReader, peReader.GetMetadataReader(), peReader);
                     }
                 }
                 else if (IsManagedMetadata(stream))
                 {
+                    if (embeddedPdb)
+                    {
+                        throw new InvalidOperationException("File is not PE file");
+                    }
+
                     var mdProvider = MetadataReaderProvider.FromMetadataStream(stream);
-                    generation.MetadataReader = mdProvider.GetMetadataReader();
-                    generation.MemoryOwner = mdProvider;
+                    return new GenerationData(mdProvider, mdProvider.GetMetadataReader());
                 }
                 else
                 {
                     throw new NotSupportedException("File format not supported");
                 }
 
-                return generation;
             }
             catch (Exception e)
             {
-                Console.WriteLine($"Error reading '{path}': {e.Message}");
+                Console.WriteLine($"Error reading '{peFilePath}': {e.Message}");
                 return null;
             }
+        }
+
+        private static GenerationData ReadDelta(string metadataPath, string ilPathOpt)
+        {
+            byte[] ilDelta;
+            try
+            {
+                ilDelta = (ilPathOpt != null) ? File.ReadAllBytes(ilPathOpt) : null;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Error reading '{ilPathOpt}': {e.Message}");
+                return null;
+            }
+
+            MetadataReaderProvider mdProvider;
+            try
+            {
+                var stream = File.OpenRead(metadataPath);
+
+                if (!IsManagedMetadata(stream))
+                {
+                    throw new NotSupportedException("File format not supported");
+                }
+
+                mdProvider = MetadataReaderProvider.FromMetadataStream(stream);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Error reading '{metadataPath}': {e.Message}");
+                return null;
+            }
+
+            return new GenerationData(mdProvider, mdProvider.GetMetadataReader(), ilDelta: ilDelta);
         }
 
         private int RunOne()
@@ -148,7 +191,7 @@ namespace Microsoft.Metadata.Tools
             var generations = new List<GenerationData>();
 
             // gen 0:
-            var generation = ReadFile(_arguments.Path, embeddedPdb: _arguments.DisplayEmbeddedPdb);
+            var generation = ReadBaseline(_arguments.Path, embeddedPdb: _arguments.DisplayEmbeddedPdb);
             if (generation == null)
             {
                 return 1;
@@ -156,33 +199,32 @@ namespace Microsoft.Metadata.Tools
 
             generations.Add(generation);
 
+            Debug.Assert(!_arguments.DisplayEmbeddedPdb || _arguments.EncDeltas.Count == 0);
+
             // deltas:
             int i = 1;
-            foreach (var delta in _arguments.EncDeltas)
+            foreach (var (metadataPath, ilPathOpt) in _arguments.EncDeltas)
             {
-                var metadataPath = delta.Item1;
-                var ilPathOpt = delta.Item2;
-
-                generation = ReadFile(metadataPath, embeddedPdb: false);
-
-                if (ilPathOpt != null)
+                generation = ReadDelta(metadataPath, ilPathOpt);
+                if (generation == null)
                 {
-                    try
-                    {
-                        generation.DeltaILOpt = File.ReadAllBytes(ilPathOpt);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine($"Error reading '{ilPathOpt}': {e.Message}");
-                        return 1;
-                    }
+                    return 1;
                 }
 
                 generations.Add(generation);
                 i++;
             }
 
-            VisualizeGenerations(generations);
+            try
+            {
+                VisualizeGenerations(generations);
+            }
+            catch (BadImageFormatException e)
+            {
+                Console.WriteLine("Error reading metadata: " + e.Message);
+                return 1;
+            }
+
             return 0;
         }
 
@@ -274,9 +316,9 @@ namespace Microsoft.Metadata.Tools
                         visualizer.VisualizeMethodBody(methodHandle, rva => generation.PEReaderOpt.GetMethodBody(rva));
                     }
                 }
-                else if (generation.DeltaILOpt != null)
+                else if (generation.ILDeltaOpt != null)
                 {
-                    fixed (byte* deltaILPtr = generation.DeltaILOpt)
+                    fixed (byte* deltaILPtr = generation.ILDeltaOpt)
                     {
                         foreach (var generationHandle in mdReader.MethodDefinitions)
                         {
@@ -284,12 +326,16 @@ namespace Microsoft.Metadata.Tools
                             var rva = method.RelativeVirtualAddress;
                             if (rva != 0)
                             {
-                                var body = MethodBodyBlock.Create(new BlobReader(deltaILPtr + rva, generation.DeltaILOpt.Length - rva));
+                                var body = MethodBodyBlock.Create(new BlobReader(deltaILPtr + rva, generation.ILDeltaOpt.Length - rva));
 
                                 visualizer.VisualizeMethodBody(body, generationHandle, generationIndex);
                             }
                         }
                     }
+                }
+                else
+                {
+                    visualizer.WriteLine("<IL not available>");
                 }
             }
             catch (BadImageFormatException)
