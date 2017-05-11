@@ -27,6 +27,8 @@ namespace Microsoft.Metadata.Tools
 
     public sealed partial class MetadataVisualizer
     {
+        private const string BadMetadataStr = "<bad metadata>";
+
         private enum BlobKind
         {
             None,
@@ -317,21 +319,6 @@ namespace Microsoft.Metadata.Tools
             }
         }
 
-        private string ToString<T>(Func<T> getValue)
-        {
-            T value;
-            try
-            {
-                value = getValue();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return value.ToString();
-        }
-
         private static readonly Guid s_CSharpGuid = new Guid("3f5162f8-07c6-11d3-9053-00c04fa302a1");
         private static readonly Guid s_visualBasicGuid = new Guid("3a12d0b8-c26c-11d0-b442-00a0244a1dd2");
         private static readonly Guid s_FSharpGuid = new Guid("ab4f38c9-b6e6-43ba-be3b-58080b2ccce3");
@@ -509,7 +496,7 @@ namespace Microsoft.Metadata.Tools
             }
             catch (BadImageFormatException)
             {
-                return "<bad metadata>";
+                return BadMetadataStr;
             }
 
             if (!handle.IsNil && kind != BlobKind.None)
@@ -538,7 +525,7 @@ namespace Microsoft.Metadata.Tools
             }
             catch (BadImageFormatException)
             {
-                return "<bad metadata>";
+                return BadMetadataStr;
             }
 
             return Literal(handle, getValue);
@@ -596,35 +583,68 @@ namespace Microsoft.Metadata.Tools
             }
             catch (BadImageFormatException)
             {
-                return "<bad metadata>";
+                return BadMetadataStr;
+            }
+        }
+
+        private static bool TryGetValue<T>(Func<T> getValue, out T result)
+        {
+            try
+            {
+                result = getValue();
+                return true;
+            }
+            catch (BadImageFormatException)
+            {
+                result = default(T);
+                return false;
+            }
+        }
+
+        private string ToString<TValue>(Func<TValue> getValue)
+        {
+            try
+            {
+                return getValue().ToString();
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+        }
+
+        private static string ToString<TValue>(Func<TValue> getValue, Func<TValue, string> valueToString)
+        {
+            try
+            {
+                return valueToString(getValue());
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+        }
+
+        private static string ToString<TValue, TArg>(Func<TValue> getValue, TArg arg, Func<TValue, TArg, string> valueToString)
+        {
+            try
+            {
+                return valueToString(getValue(), arg);
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
             }
         }
 
         private string Hex(ushort value)
-        {
-            return "0x" + value.ToString("X4");
-        }
+            => $"0x{value:X4}";
 
         private string Hex(int value)
-        {
-            return "0x" + value.ToString("X8");
-        }
+            => $"0x{value:X8}";
 
-        public string Token(Func<Handle> handleFunc, bool displayTable = true)
-        {
-            Handle handle;
-
-            try
-            {
-                handle = handleFunc();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return Token(handle, displayTable);
-        }
+        public string Token(Func<Handle> getHandle, bool displayTable = true)
+            => ToString(getHandle, displayTable, Token);
 
         private string Token(Handle handle, bool displayTable = true)
         {
@@ -640,42 +660,17 @@ namespace Microsoft.Metadata.Tools
             }
         }
 
-        private string RowId(Func<EntityHandle> handleFunc)
-        {
-            EntityHandle handle;
-
-            try
-            {
-                handle = handleFunc();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return RowId(handle);
-        }
+        private string RowId(Func<EntityHandle> getHandle)
+            => ToString(getHandle, RowId);
 
         private string RowId(EntityHandle handle)
-        {
-            return handle.IsNil ? "nil" : $"#{_reader.GetRowNumber(handle):x}";
-        }
+            => handle.IsNil ? "nil" : $"#{_reader.GetRowNumber(handle):x}";
 
-        private string HeapOffset(Func<Handle> handleFunc)
-        {
-            Handle handle;
+        private string HeapOffset(Func<Handle> getHandle)
+            => ToString(getHandle, HeapOffset);
 
-            try
-            {
-                handle = handleFunc();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return handle.IsNil ? "nil" : NoHeapReferences ? "" : $"#{_reader.GetHeapOffset(handle):x}";
-        }
+        private string HeapOffset(Handle handle)
+            => handle.IsNil ? "nil" : NoHeapReferences ? "" : $"#{_reader.GetHeapOffset(handle):x}";
 
         private static string EnumValue<TIntegral>(Func<object> getValue) where TIntegral : IEquatable<TIntegral>
         {
@@ -687,7 +682,7 @@ namespace Microsoft.Metadata.Tools
             }
             catch (BadImageFormatException)
             {
-                return "<bad metadata>";
+                return BadMetadataStr;
             }
 
             TIntegral integralValue = (TIntegral)value;
@@ -721,6 +716,9 @@ namespace Microsoft.Metadata.Tools
 
             return string.Join(", ", handles.Select(h => Token(() => h, displayTable)));
         }
+
+        private string Version(Func<Version> getVersion)
+            => ToString(getVersion, version => version.Major + "." + version.Minor + "." + version.Build + "." + version.Revision);
 
         private string FormatAwaits(BlobHandle handle)
         {
@@ -818,22 +816,6 @@ namespace Microsoft.Metadata.Tools
             }
 
             return sb.ToString();
-        }
-
-        private string Version(Func<Version> getVersion)
-        {
-            Version version;
-
-            try
-            {
-                version = getVersion();
-            }
-            catch (BadImageFormatException)
-            {
-                return "<bad metadata>";
-            }
-
-            return version.Major + "." + version.Minor + "." + version.Build + "." + version.Revision;
         }
 
         private string SequencePoint(SequencePoint sequencePoint, bool includeDocument = true)
@@ -1643,7 +1625,7 @@ namespace Microsoft.Metadata.Tools
                 }
                 catch (BadImageFormatException)
                 {
-                    _writer.WriteLine("<bad metadata>");
+                    _writer.WriteLine(BadMetadataStr);
                 }
 
                 _writer.WriteLine();
@@ -1738,16 +1720,15 @@ namespace Microsoft.Metadata.Tools
 
                 bool addLineBreak = false;
 
-                var kickoffMethod = entry.GetStateMachineKickoffMethod();
-                if (!kickoffMethod.IsNil)
+                if (!TryGetValue(() => entry.GetStateMachineKickoffMethod(), out var kickoffMethod) || !kickoffMethod.IsNil)
                 {
-                    _writer.WriteLine($"  Kickoff Method: {Token(() => kickoffMethod)}");
+                    _writer.WriteLine($"  Kickoff Method: {(kickoffMethod.IsNil ? BadMetadataStr : Token(kickoffMethod))}");
                     addLineBreak = true;
                 }
 
-                if (!entry.LocalSignature.IsNil)
+                if (!TryGetValue(() => entry.LocalSignature, out var localSignature) || !localSignature.IsNil)
                 {
-                    _writer.WriteLine($"  Locals: {Token(() => entry.LocalSignature)}");
+                    _writer.WriteLine($"  Locals: {(localSignature.IsNil ? BadMetadataStr : Token(localSignature))}");
                     addLineBreak = true;
                 }
 
@@ -1772,7 +1753,7 @@ namespace Microsoft.Metadata.Tools
                 }
                 catch (BadImageFormatException)
                 {
-                    _writer.WriteLine("<bad metadata>");
+                    _writer.WriteLine("  " + BadMetadataStr);
                 }
 
                 _writer.WriteLine("}");
@@ -1884,11 +1865,11 @@ namespace Microsoft.Metadata.Tools
                 {
                     if (sigReader.RemainingBytes == 1)
                     {
-                        value = (sigReader.ReadByte() == 0xff) ? "null" : "<bad metadata>";
+                        value = (sigReader.ReadByte() == 0xff) ? "null" : BadMetadataStr;
                     }
                     else if (sigReader.RemainingBytes % 2 != 0)
                     {
-                        value = "<bad metadata>";
+                        value = BadMetadataStr;
                     }
                     else
                     {
