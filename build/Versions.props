@@ -12,7 +12,7 @@
     <DotNetCliVersion>2.0.0-preview1-005977</DotNetCliVersion>
     <MicroBuildCoreVersion>0.2.0</MicroBuildCoreVersion>
     <MicroBuildPluginsSwixBuildVersion>1.0.101</MicroBuildPluginsSwixBuildVersion>
-    <MicrosoftNetCompilersVersion>2.0.1</MicrosoftNetCompilersVersion>
+    <MicrosoftNetCompilersVersion>2.1.0</MicrosoftNetCompilersVersion>
 
     <!-- Tests -->
     <MicrosoftNETTestSdkVersion>15.0.0-preview-20170125-04</MicrosoftNETTestSdkVersion>
