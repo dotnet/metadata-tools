@@ -6,6 +6,7 @@
     <OutputType>Exe</OutputType>
     <LargeAddressAware>true</LargeAddressAware>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <PlatformTarget>AnyCPU</PlatformTarget>
     <RuntimeIdentifier>win7-x64</RuntimeIdentifier>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
   </PropertyGroup>
