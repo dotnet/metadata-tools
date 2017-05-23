@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2011/08/nuspec.xsd">
+  <metadata>
+    <id>mdv</id>
+    <version>$version$</version>
+    <authors>Microsoft</authors>
+    <owners>Microsoft</owners>
+    <requireLicenseAcceptance>true</requireLicenseAcceptance>
+    <licenseUrl>$licenseUrl$</licenseUrl>
+    <projectUrl>$repoUrl$</projectUrl>
+    <copyright>$copyright$</copyright>
+    <repository url="$repoUrl$" />
+    <developmentDependency>true</developmentDependency>
+    <tags>ECMA335 metadata Portable PDBs visualizer diagnosing display</tags> 
+    <serviceable>true</serviceable>
+    <description>Tool for diagnosing and displaying content of ECMA335 metadata files and Portable PDBs.</description>
+    <language>en-US</language>
+  </metadata>
+  <files>
+    <!-- Dependencies built by this repo -->
+    <file src="..\Microsoft.Metadata.Visualizer\netstandard1.3\Microsoft.Metadata.Visualizer.dll" target="tools" />
+    <!-- External dependencies -->
+    <file src="net46\Microsoft.Win32.Primitives.dll" target="tools" />
+    <file src="net46\System.*.dll" target="tools" />
+    <file src="net46\*.exe" target="tools" />
+    <file src="net46\*.exe.config" target="tools" />
+  </files>
+</package>

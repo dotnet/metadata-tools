@@ -7,8 +7,11 @@
     <LargeAddressAware>true</LargeAddressAware>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <RuntimeIdentifier>win7-x64</RuntimeIdentifier>
-    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <IsPackable>true</IsPackable>
+    <NuspecFile>mdv.nuspec</NuspecFile>
+    <NuspecBasePath>$(OutputPath)</NuspecBasePath>
+    <NuspecProperties>version=$(Version);licenseUrl=$(PackageLicenseUrl);repoUrl=$(RepositoryUrl);copyright=$(Copyright)</NuspecProperties>    
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Microsoft.Metadata.Visualizer\Utilities\Hash.cs" Link="Hash.cs" />
