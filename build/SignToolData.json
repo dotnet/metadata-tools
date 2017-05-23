@@ -5,7 +5,7 @@
       "strongName": "MsSharedLib72",
       "values": [
         "Microsoft.Metadata.Visualizer/netstandard1.3/Microsoft.Metadata.Visualizer.dll", 
-        "mdv/net46/win7-x64/mdv.exe"
+        "mdv/net46/mdv.exe"
       ]
     }
   ]
