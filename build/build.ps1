@@ -84,21 +84,20 @@ function InstallDotNetCli {
 }
 
 function Build {
-  if ($ci) {
+  # Microbuild is on 15.1 which doesn't support binary log
+  if ($ci -or $log) {
     Create-Directory($logDir)
-    # Microbuild is on 15.1 which doesn't support binary log
-    if ($env:BUILD_BUILDNUMBER -eq "") {
-      $log = "/bl:" + (Join-Path $LogDir "Build.binlog")
+
+    if ($env:BUILD_BUILDNUMBER -eq $null) {
+      $logCmd = "/bl:" + (Join-Path $LogDir "Build.binlog")
     } else {
-      $log = "/flp1:Summary;Verbosity=diagnostic;Encoding=UTF-8;LogFile=" + (Join-Path $LogDir "Build.log")
+      $logCmd = "/flp1:Summary;Verbosity=diagnostic;Encoding=UTF-8;LogFile=" + (Join-Path $LogDir "Build.log")
     }
   } else {
-    $log = ""
+    $logCmd = ""
   }
 
-  $nodeReuse = !$ci
-
-  & $DotNetExe msbuild $BuildProj /m /nologo /clp:Summary /nodeReuse:$nodeReuse /warnaserror /v:$verbosity $logCmd /p:Configuration=$configuration /p:SolutionPath=$solution /p:Restore=$restore /p:DeployDeps=$deployDeps /p:Build=$build /p:Rebuild=$rebuild /p:Deploy=$deploy /p:Test=$test /p:IntegrationTest=$integrationTest /p:Sign=$sign /p:Pack=$pack /p:CIBuild=$ci $properties
+  & $DotNetExe msbuild $BuildProj /m /nologo /clp:Summary /warnaserror /v:$verbosity $logCmd /p:Configuration=$configuration /p:SolutionPath=$solution /p:Restore=$restore /p:Build=$build /p:Rebuild=$rebuild /p:Test=$test /p:Sign=$sign /p:Pack=$pack /p:CIBuild=$ci $properties
 }
 
 function Stop-Processes() {
@@ -116,6 +115,10 @@ function Clear-NuGetCache() {
 }
 
 try {
+  if ($restore) {
+    InstallDotNetCli
+  }
+
   if ($ci) {
     Create-Directory $TempDir
     $env:TEMP = $TempDir
