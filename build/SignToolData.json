@@ -7,6 +7,13 @@
         "bin/Microsoft.Metadata.Visualizer/netstandard1.3/Microsoft.Metadata.Visualizer.dll", 
         "bin/mdv/net46/mdv.exe"
       ]
+    },
+    {
+      "certificate": null,
+      "strongName": null,
+      "values": [
+        "packages/*.nupkg"
+      ]
     }
   ]
 }
