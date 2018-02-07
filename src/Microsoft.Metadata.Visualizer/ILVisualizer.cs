@@ -191,7 +191,7 @@ namespace Microsoft.Metadata.Tools
             return *(double*)&value;
         }
 
-        public void VisualizeHeader(StringBuilder sb, int codeSize, int maxStack, ImmutableArray<LocalInfo> locals)
+        public void VisualizeHeader(StringBuilder sb, int codeSize, int maxStack, ImmutableArray<LocalInfo> locals, bool localsAreZeroed = true)
         {
             if (codeSize >= 0 && maxStack >= 0)
             {
@@ -207,36 +207,39 @@ namespace Microsoft.Metadata.Tools
                 sb.AppendLine(string.Format("  .maxstack  {0}", maxStack));
             }
 
-            int i = 0;
-            foreach (var local in locals)
+            if (localsAreZeroed)
             {
-                sb.Append(i == 0 ? "  .locals init (" : new string(' ', "  .locals init (".Length));
-                if (local.IsPinned)
+                int i = 0;
+                foreach (var local in locals)
                 {
-                    sb.Append("pinned ");
+                    sb.Append(i == 0 ? "  .locals init (" : new string(' ', "  .locals init (".Length));
+                    if (local.IsPinned)
+                    {
+                        sb.Append("pinned ");
+                    }
+
+                    sb.Append(VisualizeLocalType(local.Type));
+                    if (local.IsByRef)
+                    {
+                        sb.Append("&");
+                    }
+
+                    sb.Append(" ");
+                    sb.Append("V_" + i);
+
+                    sb.Append(i == locals.Length - 1 ? ")" : ",");
+
+                    var name = local.Name;
+                    if (name != null)
+                    {
+                        sb.Append(" //");
+                        sb.Append(name);
+                    }
+
+                    sb.AppendLine();
+
+                    i++;
                 }
-
-                sb.Append(VisualizeLocalType(local.Type));
-                if (local.IsByRef)
-                {
-                    sb.Append("&");
-                }
-
-                sb.Append(" ");
-                sb.Append("V_" + i);
-
-                sb.Append(i == locals.Length - 1 ? ")" : ",");
-
-                var name = local.Name;
-                if (name != null)
-                {
-                    sb.Append(" //");
-                    sb.Append(name);
-                }
-
-                sb.AppendLine();
-
-                i++;
             }
         }
 
@@ -245,10 +248,11 @@ namespace Microsoft.Metadata.Tools
             ImmutableArray<byte> ilBytes,
             ImmutableArray<LocalInfo> locals,
             IReadOnlyList<HandlerSpan> exceptionHandlers,
-            IReadOnlyDictionary<int, string> markers = null)
+            IReadOnlyDictionary<int, string> markers = null,
+            bool localsAreZeroed = true)
         {
             var builder = new StringBuilder();
-            this.DumpMethod(builder, maxStack, ilBytes, locals, exceptionHandlers, markers);
+            this.DumpMethod(builder, maxStack, ilBytes, locals, exceptionHandlers, markers, localsAreZeroed);
             return builder.ToString();
         }
 
@@ -258,11 +262,12 @@ namespace Microsoft.Metadata.Tools
             ImmutableArray<byte> ilBytes,
             ImmutableArray<LocalInfo> locals,
             IReadOnlyList<HandlerSpan> exceptionHandlers,
-            IReadOnlyDictionary<int, string> markers = null)
+            IReadOnlyDictionary<int, string> markers = null,
+            bool localsAreZeroed = true)
         {
             sb.AppendLine("{");
 
-            VisualizeHeader(sb, ilBytes.Length, maxStack, locals);
+            VisualizeHeader(sb, ilBytes.Length, maxStack, locals, localsAreZeroed);
             DumpILBlock(ilBytes, ilBytes.Length, sb, exceptionHandlers, 0, markers);
 
             sb.AppendLine("}");
