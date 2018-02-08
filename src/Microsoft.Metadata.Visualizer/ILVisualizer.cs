@@ -207,39 +207,38 @@ namespace Microsoft.Metadata.Tools
                 sb.AppendLine(string.Format("  .maxstack  {0}", maxStack));
             }
 
-            if (localsAreZeroed)
+            int i = 0;
+            foreach (var local in locals)
             {
-                int i = 0;
-                foreach (var local in locals)
+                string localsDecl = localsAreZeroed ? "  .locals init (" : "  .locals (";
+
+                sb.Append(i == 0 ? localsDecl : new string(' ', localsDecl.Length));
+                if (local.IsPinned)
                 {
-                    sb.Append(i == 0 ? "  .locals init (" : new string(' ', "  .locals init (".Length));
-                    if (local.IsPinned)
-                    {
-                        sb.Append("pinned ");
-                    }
-
-                    sb.Append(VisualizeLocalType(local.Type));
-                    if (local.IsByRef)
-                    {
-                        sb.Append("&");
-                    }
-
-                    sb.Append(" ");
-                    sb.Append("V_" + i);
-
-                    sb.Append(i == locals.Length - 1 ? ")" : ",");
-
-                    var name = local.Name;
-                    if (name != null)
-                    {
-                        sb.Append(" //");
-                        sb.Append(name);
-                    }
-
-                    sb.AppendLine();
-
-                    i++;
+                    sb.Append("pinned ");
                 }
+
+                sb.Append(VisualizeLocalType(local.Type));
+                if (local.IsByRef)
+                {
+                    sb.Append("&");
+                }
+
+                sb.Append(" ");
+                sb.Append("V_" + i);
+
+                sb.Append(i == locals.Length - 1 ? ")" : ",");
+
+                var name = local.Name;
+                if (name != null)
+                {
+                    sb.Append(" //");
+                    sb.Append(name);
+                }
+
+                sb.AppendLine();
+
+                i++;
             }
         }
 
