@@ -9,7 +9,7 @@
     <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)\'))</RepoRoot>
     <SignToolDataPath>$(RepoRoot)build\SignToolData.json</SignToolDataPath>
     <VersionsPropsPath>$(RepoRoot)build\Versions.props</VersionsPropsPath>
-    <RepoToolsetDir>$(NuGetPackageRoot)RoslynTools.Microsoft.RepoToolset\$(RoslynToolsMicrosoftRepoToolsetVersion)\tools\</RepoToolsetDir>
+    <RepoToolsetDir>$(NuGetPackageRoot)roslynTools.repotoolset\$(RoslynToolsRepoToolsetVersion)\tools\</RepoToolsetDir>
 
     <RepositoryUrl>https://github.com/dotnet/metadata-tools</RepositoryUrl>
     <PackageProjectUrl>$(RepositoryUrl)</PackageProjectUrl>

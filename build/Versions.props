@@ -5,8 +5,8 @@
     <PreReleaseVersionLabel>beta1</PreReleaseVersionLabel>
 
     <!-- Toolset -->
-    <RoslynToolsMicrosoftRepoToolsetVersion>1.0.0-alpha30</RoslynToolsMicrosoftRepoToolsetVersion>
-    <DotNetCliVersion>2.0.0-preview3-006923</DotNetCliVersion>
+    <RoslynToolsRepoToolsetVersion>1.0.0-beta-62503-02</RoslynToolsRepoToolsetVersion>
+    <DotNetCliVersion>2.0.2</DotNetCliVersion>
 
     <!--
       TODO: dotnet cli currently doesn't support building against net20, using msbuild instead.
