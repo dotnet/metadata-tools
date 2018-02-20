@@ -49,55 +49,43 @@ if ($help -or (($properties -ne $null) -and ($properties.Contains("/help") -or $
   Print-Usage
   exit 0
 }
-$RepoRoot = Join-Path $PSScriptRoot "..\"
-$DotNetRoot = Join-Path $RepoRoot ".dotnet"
-$DotNetExe = Join-Path $DotNetRoot "dotnet.exe"
-$BuildProj = Join-Path $PSScriptRoot "build.proj"
-$DependenciesProps = Join-Path $PSScriptRoot "Versions.props"
-$ArtifactsDir = Join-Path $RepoRoot "artifacts"
-$LogDir = Join-Path (Join-Path $ArtifactsDir $configuration) "log"
-$TempDir = Join-Path (Join-Path $ArtifactsDir $configuration) "tmp"
 
 function Create-Directory([string[]] $path) {
-  if (!(Test-Path -path $path)) {
+  if (!(Test-Path $path)) {
     New-Item -path $path -force -itemType "Directory" | Out-Null
   }
 }
 
-function GetDotNetCliVersion {
-  [xml]$xml = Get-Content $DependenciesProps
-  return $xml.Project.PropertyGroup.DotNetCliVersion
-}
-
 function InstallDotNetCli {
+  $installScript = "$DotNetRoot\dotnet-install.ps1"
+  if (!(Test-Path $installScript)) { 
+    Create-Directory $DotNetRoot
+    Invoke-WebRequest "https://dot.net/v1/dotnet-install.ps1" -OutFile $installScript
+  }
   
-  Create-Directory $DotNetRoot
-  $dotnetCliVersion = GetDotNetCliVersion
-
-  $installScript="https://raw.githubusercontent.com/dotnet/cli/release/2.0.0/scripts/obtain/dotnet-install.ps1"
-  Invoke-WebRequest $installScript -OutFile "$DotNetRoot\dotnet-install.ps1"
-  
-  & "$DotNetRoot\dotnet-install.ps1" -Version $dotnetCliVersion -InstallDir $DotNetRoot
+  & $installScript -Version $globalJson.sdk.version -InstallDir $DotNetRoot
   if ($lastExitCode -ne 0) {
     throw "Failed to install dotnet cli (exit code '$lastExitCode')."
   }
 }
 
+function InstallToolset {
+  if (!(Test-Path $ToolsetBuildProj)) {
+   $proj = Join-Path $TempDir "_restore.proj"   
+   '<Project Sdk="RoslynTools.RepoToolset"><Target Name="NoOp"/></Project>' | Set-Content $proj
+    & $DotNetExe msbuild $proj /t:NoOp /m /nologo /clp:None /warnaserror /v:$verbosity /p:NuGetPackageRoot=$NuGetPackageRoot /p:__ExcludeSdkImports=true
+  }
+}
+
 function Build {
-  # Microbuild is on 15.1 which doesn't support binary log
   if ($ci -or $log) {
     Create-Directory($logDir)
-
-    if ($env:BUILD_BUILDNUMBER -eq $null) {
-      $logCmd = "/bl:" + (Join-Path $LogDir "Build.binlog")
-    } else {
-      $logCmd = "/flp1:Summary;Verbosity=diagnostic;Encoding=UTF-8;LogFile=" + (Join-Path $LogDir "Build.log")
-    }
+    $logCmd = "/bl:" + (Join-Path $LogDir "Build.binlog")
   } else {
     $logCmd = ""
   }
-
-  & $DotNetExe msbuild $BuildProj /m /nologo /clp:Summary /warnaserror /v:$verbosity $logCmd /p:Configuration=$configuration /p:SolutionPath=$solution /p:Restore=$restore /p:Build=$build /p:Rebuild=$rebuild /p:Test=$test /p:Sign=$sign /p:Pack=$pack /p:CIBuild=$ci $properties
+ 
+  & $DotNetExe msbuild $ToolsetBuildProj /m /nologo /clp:Summary /warnaserror /v:$verbosity $logCmd /p:Configuration=$configuration /p:SolutionPath=$solution /p:Restore=$restore /p:Build=$build /p:Rebuild=$rebuild /p:Test=$test /p:Sign=$sign /p:Pack=$pack /p:CIBuild=$ci /p:NuGetPackageRoot=$NuGetPackageRoot $properties
 }
 
 function Stop-Processes() {
@@ -106,28 +94,39 @@ function Stop-Processes() {
   Get-Process -Name "vbcscompiler" -ErrorAction SilentlyContinue | Stop-Process
 }
 
-function Clear-NuGetCache() {
-  # clean nuget packages -- necessary to avoid mismatching versions of swix microbuild build plugin and VSSDK on Jenkins
-  $nugetRoot = (Join-Path $env:USERPROFILE ".nuget\packages")
-  if (Test-Path $nugetRoot) {
-    Remove-Item $nugetRoot -Recurse -Force
-  }
-}
-
 try {
-  if ($restore) {
-    InstallDotNetCli
+
+  $RepoRoot = Join-Path $PSScriptRoot "..\"
+  $DotNetRoot = Join-Path $RepoRoot ".dotnet"
+  $DotNetExe = Join-Path $DotNetRoot "dotnet.exe"
+  $ArtifactsDir = Join-Path $RepoRoot "artifacts"
+  $LogDir = Join-Path (Join-Path $ArtifactsDir $configuration) "log"
+  $TempDir = Join-Path (Join-Path $ArtifactsDir $configuration) "tmp"
+  $globalJson = Get-Content(Join-Path $RepoRoot "global.json") | ConvertFrom-Json
+
+  if ($solution -eq "") {
+    $solution = @(gci(Join-Path $RepoRoot "*.sln"))[0]
   }
+
+  if ($env:NUGET_PACKAGES -ne $null) {
+    $NuGetPackageRoot = $env:NUGET_PACKAGES.TrimEnd("\") + "\"
+  } else {
+    $NuGetPackageRoot = Join-Path $env:UserProfile ".nuget\packages\"
+  }
+
+  $ToolsetVersion = $globalJson.'msbuild-sdks'.'RoslynTools.RepoToolset'
+  $ToolsetBuildProj = Join-Path $NuGetPackageRoot "roslyntools.repotoolset\$ToolsetVersion\tools\Build.proj"
+
+  Create-Directory $TempDir
 
   if ($ci) {
-    Create-Directory $TempDir
     $env:TEMP = $TempDir
     $env:TMP = $TempDir
   }
 
-  # Preparation of a CI machine
-  if ($prepareMachine) {
-    Clear-NuGetCache
+  if ($restore) {
+    InstallDotNetCli
+    InstallToolset
   }
 
   Build
