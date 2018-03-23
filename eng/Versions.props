@@ -16,6 +16,8 @@
     <SystemReflectionMetadataVersion>1.6.0-preview3-26322-06</SystemReflectionMetadataVersion>
     <SystemTextRegularExpressionsVersion>4.3.0</SystemTextRegularExpressionsVersion>
     <SystemValueTupleVersion>4.3.0</SystemValueTupleVersion>
+    
+    <UsingToolNetFrameworkReferenceAssemblies>true</UsingToolNetFrameworkReferenceAssemblies>
   </PropertyGroup>
 
   <PropertyGroup>
