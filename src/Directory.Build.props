@@ -3,9 +3,15 @@
   <Import Project="..\Directory.Build.props"/>
 
   <PropertyGroup>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>Latest</LangVersion>
+
+    <!-- 
+      TODO: Can't use embedded PDBs with LUT:
+      https://github.com/dotnet/testimpact/issues/1877 
+    -->
+    <DebugType Condition="'$(BuildingForLiveUnitTesting)' != 'true'">embedded</DebugType>
   </PropertyGroup>
-    
+
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
   </PropertyGroup>
