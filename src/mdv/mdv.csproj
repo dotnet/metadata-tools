@@ -7,11 +7,15 @@
     <LargeAddressAware>true</LargeAddressAware>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <PlatformTarget>AnyCPU</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- NuGet -->
     <IsPackable>true</IsPackable>
     <NuspecFile>mdv.nuspec</NuspecFile>
     <NuspecBasePath>$(OutputPath)</NuspecBasePath>
-    <NuspecProperties>version=$(Version);licenseUrl=$(PackageLicenseUrl);repoUrl=$(RepositoryUrl);copyright=$(Copyright)</NuspecProperties>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <PackageTags>ECMA335 metadata Portable PDBs visualizer diagnosing display</PackageTags> 
+    <Description>Tool for diagnosing and displaying content of ECMA335 metadata files and Portable PDBs.</Description>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Microsoft.Metadata.Visualizer\Utilities\Hash.cs" Link="Hash.cs" />
