@@ -12,8 +12,8 @@
     <MicrosoftCodeAnalysisDebuggingVersion>2.7.0-beta3-62511-04</MicrosoftCodeAnalysisDebuggingVersion>
 
     <!-- CoreFX -->
-    <SystemCollectionsImmutableVersion>1.5.0-preview2-26401-03</SystemCollectionsImmutableVersion>
-    <SystemReflectionMetadataVersion>1.6.0-preview2-26401-03</SystemReflectionMetadataVersion>
+    <SystemCollectionsImmutableVersion>1.5.0</SystemCollectionsImmutableVersion>
+    <SystemReflectionMetadataVersion>1.6.0</SystemReflectionMetadataVersion>
     <SystemTextRegularExpressionsVersion>4.3.0</SystemTextRegularExpressionsVersion>
     <SystemValueTupleVersion>4.3.0</SystemValueTupleVersion>
     
