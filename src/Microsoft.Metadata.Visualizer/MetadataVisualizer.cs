@@ -596,7 +596,7 @@ namespace Microsoft.Metadata.Tools
             }
             catch (BadImageFormatException)
             {
-                result = default(T);
+                result = default;
                 return false;
             }
         }
@@ -637,11 +637,11 @@ namespace Microsoft.Metadata.Tools
             }
         }
 
-        private string Hex(ushort value)
-            => $"0x{value:X4}";
+        private string Int32(Func<int> getValue)
+            => ToString(getValue, value => value.ToString());
 
-        private string Hex(int value)
-            => $"0x{value:X8}";
+        private string Int32Hex(Func<int> getValue, int digits = 8)
+            => ToString(getValue, value => "0x" + value.ToString("X" + digits));
 
         public string Token(Func<Handle> getHandle, bool displayTable = true)
             => ToString(getHandle, displayTable, Token);
@@ -686,7 +686,7 @@ namespace Microsoft.Metadata.Tools
             }
 
             TIntegral integralValue = (TIntegral)value;
-            if (integralValue.Equals(default(TIntegral)))
+            if (integralValue.Equals(default))
             {
                 return "0";
             }
@@ -992,7 +992,7 @@ namespace Microsoft.Metadata.Tools
                 AddRow(
                     Literal(() => entry.Name),
                     MethodSignature(() => entry.Signature),
-                    Hex(entry.RelativeVirtualAddress),
+                    Int32Hex(() => entry.RelativeVirtualAddress),
                     TokenRange(entry.GetParameters(), h => h),
                     TokenRange(entry.GetGenericParameters(), h => h),
                     EnumValue<int>(() => entry.Attributes),    // TODO: we need better visualizer than the default enum
@@ -1383,7 +1383,7 @@ namespace Microsoft.Metadata.Tools
                     Literal(() => entry.Namespace),
                     ToString(() => ((entry.Attributes & TypeForwarder) == TypeForwarder ? "TypeForwarder, " : "") + (entry.Attributes & ~TypeForwarder).ToString()),
                     Token(() => entry.Implementation),
-                    Hex(entry.GetTypeDefinitionId())
+                    Int32Hex(() => entry.GetTypeDefinitionId())
                 );
             }
 
@@ -1782,8 +1782,8 @@ namespace Microsoft.Metadata.Tools
                     Token(() => entry.ImportScope),
                     TokenRange(entry.GetLocalVariables(), h => h),
                     TokenRange(entry.GetLocalConstants(), h => h),
-                    entry.StartOffset.ToString("X4"),
-                    entry.Length.ToString()
+                    Int32Hex(() => entry.StartOffset, digits: 4),
+                    Int32(() => entry.Length)
                );
             }
 
@@ -1804,8 +1804,8 @@ namespace Microsoft.Metadata.Tools
 
                 AddRow(
                     Literal(() => entry.Name),
-                    entry.Index.ToString(),
-                    entry.Attributes.ToString()
+                    Int32(() => entry.Index),
+                    EnumValue<int>(() => entry.Attributes)
                );
             }
 
