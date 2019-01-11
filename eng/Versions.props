@@ -5,19 +5,17 @@
 
     <!-- This repo version -->
     <VersionPrefix>1.0.0</VersionPrefix>
-    <PreReleaseVersionLabel>beta1</PreReleaseVersionLabel>
+    <PreReleaseVersionLabel>beta2</PreReleaseVersionLabel>
 
     <!-- Libs -->
-    <MicrosoftCodeAnalysisPooledObjectsVersion>2.7.0-beta3-62511-04</MicrosoftCodeAnalysisPooledObjectsVersion>
-    <MicrosoftCodeAnalysisDebuggingVersion>2.7.0-beta3-62511-04</MicrosoftCodeAnalysisDebuggingVersion>
+    <MicrosoftCodeAnalysisPooledObjectsVersion>3.1.0-beta1-19060-28</MicrosoftCodeAnalysisPooledObjectsVersion>
+    <MicrosoftCodeAnalysisDebuggingVersion>3.1.0-beta1-19060-28</MicrosoftCodeAnalysisDebuggingVersion>
 
     <!-- CoreFX -->
     <SystemCollectionsImmutableVersion>1.5.0</SystemCollectionsImmutableVersion>
     <SystemReflectionMetadataVersion>1.6.0</SystemReflectionMetadataVersion>
     <SystemTextRegularExpressionsVersion>4.3.0</SystemTextRegularExpressionsVersion>
-    <SystemValueTupleVersion>4.3.0</SystemValueTupleVersion>
-    
-    <UsingToolNetFrameworkReferenceAssemblies>true</UsingToolNetFrameworkReferenceAssemblies>
+    <SystemValueTupleVersion>4.5.0</SystemValueTupleVersion>
   </PropertyGroup>
 
   <PropertyGroup>

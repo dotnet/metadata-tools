@@ -1,22 +1,13 @@
-<!-- Copyright (c)  Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information. -->
+<?xml version="1.0" encoding="utf-8"?>
 <Project>
-  <Import Project="..\Directory.Build.props"/>
+  <Import Project="Sdk.props" Sdk="Microsoft.DotNet.Arcade.Sdk" />
 
   <PropertyGroup>
     <LangVersion>Latest</LangVersion>
 
-    <!-- 
-      TODO: Can't use embedded PDBs with LUT:
-      https://github.com/dotnet/testimpact/issues/1877 
+    <!--
+      NU5125 should be removed. See https://github.com/dotnet/roslyn/issues/31589 for details
     -->
-    <DebugType Condition="'$(BuildingForLiveUnitTesting)' != 'true'">embedded</DebugType>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <CheckForOverflowUnderflow>false</CheckForOverflowUnderflow>
+    <NoWarn>$(NoWarn);NU5125</NoWarn>
   </PropertyGroup>
 </Project>
