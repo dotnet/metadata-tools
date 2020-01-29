@@ -1,11 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project>
   <PropertyGroup>
-    <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
-
     <!-- This repo version -->
     <VersionPrefix>1.0.0</VersionPrefix>
-    <PreReleaseVersionLabel>beta2</PreReleaseVersionLabel>
+    <PreReleaseVersionLabel>beta3</PreReleaseVersionLabel>
 
     <!-- Libs -->
     <MicrosoftCodeAnalysisPooledObjectsVersion>3.1.0-beta1-19060-28</MicrosoftCodeAnalysisPooledObjectsVersion>
@@ -16,12 +14,5 @@
     <SystemReflectionMetadataVersion>1.6.0</SystemReflectionMetadataVersion>
     <SystemTextRegularExpressionsVersion>4.3.0</SystemTextRegularExpressionsVersion>
     <SystemValueTupleVersion>4.5.0</SystemValueTupleVersion>
-  </PropertyGroup>
-
-  <PropertyGroup>
-    <RestoreSources>
-      $(RestoreSources);
-      https://dotnet.myget.org/F/roslyn/api/v3/index.json
-    </RestoreSources>
   </PropertyGroup>
 </Project>
