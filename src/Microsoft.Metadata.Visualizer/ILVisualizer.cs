@@ -381,13 +381,10 @@ namespace Microsoft.Metadata.Tools
                         case OperandType.InlineMethod:
                         case OperandType.InlineTok:
                         case OperandType.InlineType:
+                        case OperandType.InlineSig: // signature (calli)
                             sb.Append(' ');
                             uint token = ReadUInt32(ilBytes, ref curIndex);
                             sb.Append(VisualizeSymbol(token, opCode.OperandType));
-                            break;
-
-                        case OperandType.InlineSig: // signature (calli)
-                            sb.AppendFormat(" 0x{0:x}", ReadUInt32(ilBytes, ref curIndex));
                             break;
 
                         case OperandType.InlineString:
