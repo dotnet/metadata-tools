@@ -129,6 +129,8 @@ namespace Microsoft.Metadata.Tools
         public virtual string VisualizeUserString(uint token) => $"0x{token:X8}";
         public virtual string VisualizeSymbol(uint token, OperandType operandType) => $"0x{token:X8}";
         public virtual string VisualizeLocalType(object type) => $"0x{type:X8}";
+        public virtual string VisualizeSingle(float single) => $"{single:G7}";
+        public virtual string VisualizeDouble(double @double) => $"{@double:G15}";
 
         private static ulong ReadUInt64(ImmutableArray<byte> buffer, ref int pos)
         {
@@ -437,7 +439,8 @@ namespace Microsoft.Metadata.Tools
                                 }
                                 else
                                 {
-                                    sb.AppendFormat(" {0}", value.ToString(CultureInfo.InvariantCulture));
+                                    sb.Append(" ");
+                                    sb.Append(VisualizeSingle(value));
                                 }
                             }
                             break;
@@ -451,7 +454,8 @@ namespace Microsoft.Metadata.Tools
                                 }
                                 else
                                 {
-                                    sb.AppendFormat(" {0}", value.ToString(CultureInfo.InvariantCulture));
+                                    sb.Append(" ");
+                                    sb.Append(VisualizeDouble(value));
                                 }
                             }
                             break;
