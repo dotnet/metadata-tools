@@ -179,6 +179,18 @@ namespace Microsoft.Metadata.Tools
             return result;
         }
 
+        private unsafe static float ReadSingle(ImmutableArray<byte> buffer, ref int pos)
+        {
+            uint value = ReadUInt32(buffer, ref pos);
+            return *(float*)&value;
+        }
+
+        private unsafe static double ReadDouble(ImmutableArray<byte> buffer, ref int pos)
+        {
+            ulong value = ReadUInt64(buffer, ref pos);
+            return *(double*)&value;
+        }
+
         public void VisualizeHeader(StringBuilder sb, int codeSize, int maxStack, ImmutableArray<LocalInfo> locals, bool localsAreZeroed = true)
         {
             if (codeSize >= 0 && maxStack >= 0)
@@ -417,11 +429,31 @@ namespace Microsoft.Metadata.Tools
                             break;
 
                         case OperandType.ShortInlineR:
-                            sb.AppendFormat(" 0x{0:x8}", ReadUInt32(ilBytes, ref curIndex));
+                            {
+                                var value = ReadSingle(ilBytes, ref curIndex);
+                                if (value == 0 && 1 / value < 0)
+                                {
+                                    sb.Append(" -0.0");
+                                }
+                                else
+                                {
+                                    sb.AppendFormat(" {0}", value.ToString(CultureInfo.InvariantCulture));
+                                }
+                            }
                             break;
 
                         case OperandType.InlineR:
-                            sb.AppendFormat(" 0x{0:x16}", ReadUInt64(ilBytes, ref curIndex));
+                            {
+                                var value = ReadDouble(ilBytes, ref curIndex);
+                                if (value == 0 && 1 / value < 0)
+                                {
+                                    sb.Append(" -0.0");
+                                }
+                                else
+                                {
+                                    sb.AppendFormat(" {0}", value.ToString(CultureInfo.InvariantCulture));
+                                }
+                            }
                             break;
 
                         case OperandType.ShortInlineBrTarget:
