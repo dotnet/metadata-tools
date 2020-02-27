@@ -129,8 +129,15 @@ namespace Microsoft.Metadata.Tools
         public virtual string VisualizeUserString(uint token) => $"0x{token:X8}";
         public virtual string VisualizeSymbol(uint token, OperandType operandType) => $"0x{token:X8}";
         public virtual string VisualizeLocalType(object type) => $"0x{type:X8}";
-        public virtual string VisualizeSingle(float single) => $"{single:G7}";
-        public virtual string VisualizeDouble(double @double) => $"{@double:G15}";
+        public virtual string VisualizeSingle(float single) 
+            => (single == 0 && 1 / single < 0)
+               ? "-0.0"
+               : $"{single:G15}";
+
+        public virtual string VisualizeDouble(double @double)
+            => (@double == 0 && 1 / @double < 0)
+               ? "-0.0"
+               : $"{@double:G15}";
 
         private static ulong ReadUInt64(ImmutableArray<byte> buffer, ref int pos)
         {
@@ -433,30 +440,16 @@ namespace Microsoft.Metadata.Tools
                         case OperandType.ShortInlineR:
                             {
                                 var value = ReadSingle(ilBytes, ref curIndex);
-                                if (value == 0 && 1 / value < 0)
-                                {
-                                    sb.Append(" -0.0");
-                                }
-                                else
-                                {
-                                    sb.Append(" ");
-                                    sb.Append(VisualizeSingle(value));
-                                }
+                                sb.Append(" ");
+                                sb.Append(VisualizeSingle(value));
                             }
                             break;
 
                         case OperandType.InlineR:
                             {
                                 var value = ReadDouble(ilBytes, ref curIndex);
-                                if (value == 0 && 1 / value < 0)
-                                {
-                                    sb.Append(" -0.0");
-                                }
-                                else
-                                {
-                                    sb.Append(" ");
-                                    sb.Append(VisualizeDouble(value));
-                                }
+                                sb.Append(" ");
+                                sb.Append(VisualizeDouble(value));
                             }
                             break;
 
