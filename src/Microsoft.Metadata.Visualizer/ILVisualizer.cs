@@ -132,7 +132,7 @@ namespace Microsoft.Metadata.Tools
         public virtual string VisualizeSingle(float single) 
             => (single == 0 && 1 / single < 0)
                ? "-0.0"
-               : $"{single:G15}";
+               : $"{single:G7}";
 
         public virtual string VisualizeDouble(double @double)
             => (@double == 0 && 1 / @double < 0)
