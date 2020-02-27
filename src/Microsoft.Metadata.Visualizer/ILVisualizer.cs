@@ -129,6 +129,15 @@ namespace Microsoft.Metadata.Tools
         public virtual string VisualizeUserString(uint token) => $"0x{token:X8}";
         public virtual string VisualizeSymbol(uint token, OperandType operandType) => $"0x{token:X8}";
         public virtual string VisualizeLocalType(object type) => $"0x{type:X8}";
+        public virtual string VisualizeSingle(float single) 
+            => (single == 0 && 1 / single < 0)
+               ? "-0.0"
+               : $"{single:G7}";
+
+        public virtual string VisualizeDouble(double @double)
+            => (@double == 0 && 1 / @double < 0)
+               ? "-0.0"
+               : $"{@double:G15}";
 
         private static ulong ReadUInt64(ImmutableArray<byte> buffer, ref int pos)
         {
@@ -177,6 +186,18 @@ namespace Microsoft.Metadata.Tools
             sbyte result = unchecked((sbyte)buffer[pos]);
             pos += 1;
             return result;
+        }
+
+        private unsafe static float ReadSingle(ImmutableArray<byte> buffer, ref int pos)
+        {
+            uint value = ReadUInt32(buffer, ref pos);
+            return *(float*)&value;
+        }
+
+        private unsafe static double ReadDouble(ImmutableArray<byte> buffer, ref int pos)
+        {
+            ulong value = ReadUInt64(buffer, ref pos);
+            return *(double*)&value;
         }
 
         public void VisualizeHeader(StringBuilder sb, int codeSize, int maxStack, ImmutableArray<LocalInfo> locals, bool localsAreZeroed = true)
@@ -417,11 +438,19 @@ namespace Microsoft.Metadata.Tools
                             break;
 
                         case OperandType.ShortInlineR:
-                            sb.AppendFormat(" 0x{0:x8}", ReadUInt32(ilBytes, ref curIndex));
+                            {
+                                var value = ReadSingle(ilBytes, ref curIndex);
+                                sb.Append(" ");
+                                sb.Append(VisualizeSingle(value));
+                            }
                             break;
 
                         case OperandType.InlineR:
-                            sb.AppendFormat(" 0x{0:x16}", ReadUInt64(ilBytes, ref curIndex));
+                            {
+                                var value = ReadDouble(ilBytes, ref curIndex);
+                                sb.Append(" ");
+                                sb.Append(VisualizeDouble(value));
+                            }
                             break;
 
                         case OperandType.ShortInlineBrTarget:
