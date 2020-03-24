@@ -126,18 +126,18 @@ namespace Microsoft.Metadata.Tools
 
         public const string IndentString = "  ";
 
-        public virtual string VisualizeUserString(uint token) => $"0x{token:X8}";
-        public virtual string VisualizeSymbol(uint token, OperandType operandType) => $"0x{token:X8}";
-        public virtual string VisualizeLocalType(object type) => $"0x{type:X8}";
-        public virtual string VisualizeSingle(float single) 
+        public virtual string VisualizeUserString(uint token) => string.Format("0x{0:X8}", CultureInfo.InvariantCulture, token);
+        public virtual string VisualizeSymbol(uint token, OperandType operandType) => string.Format("0x{0:X8}", CultureInfo.InvariantCulture, token);
+        public virtual string VisualizeLocalType(object type) => string.Format("0x{0:X8}", CultureInfo.InvariantCulture, type);
+        public virtual string VisualizeSingle(float single)
             => (single == 0 && 1 / single < 0)
-               ? "-0.0"
-               : $"{single:G7}";
+                ? "-0.0"
+                : string.Format("{0:G7}", CultureInfo.InvariantCulture, single);
 
         public virtual string VisualizeDouble(double @double)
             => (@double == 0 && 1 / @double < 0)
-               ? "-0.0"
-               : $"{@double:G15}";
+                ? "-0.0"
+                : string.Format("{0:G15}", CultureInfo.InvariantCulture, @double);
 
         private static ulong ReadUInt64(ImmutableArray<byte> buffer, ref int pos)
         {
@@ -210,10 +210,10 @@ namespace Microsoft.Metadata.Tools
                 }
                 else
                 {
-                    sb.AppendLine(string.Format("  // Code size {0,8} (0x{0:x})", codeSize));
+                    sb.AppendLine(string.Format("  // Code size {0,8} (0x{0:x})", CultureInfo.InvariantCulture, codeSize));
                 }
 
-                sb.AppendLine(string.Format("  .maxstack  {0}", maxStack));
+                sb.AppendLine(string.Format("  .maxstack  {0}", CultureInfo.InvariantCulture, maxStack));
             }
 
             int i = 0;
@@ -389,7 +389,7 @@ namespace Microsoft.Metadata.Tools
 
                     if (opCode.Size != expectedSize)
                     {
-                        sb.AppendLine(string.Format("  <unknown 0x{0}{1:X2}>", expectedSize == 2 ? "fe" : "", op1));
+                        sb.AppendLine(string.Format("  <unknown 0x{0}{1:X2}>", CultureInfo.InvariantCulture, expectedSize == 2 ? "fe" : "", op1));
                         continue;
                     }
 
