@@ -6,8 +6,8 @@
     <PreReleaseVersionLabel>beta3</PreReleaseVersionLabel>
     <UsingToolNetFrameworkReferenceAssemblies>true</UsingToolNetFrameworkReferenceAssemblies>
     <!-- Libs -->
-    <MicrosoftCodeAnalysisPooledObjectsVersion>3.1.0-beta1-19060-28</MicrosoftCodeAnalysisPooledObjectsVersion>
-    <MicrosoftCodeAnalysisDebuggingVersion>3.1.0-beta1-19060-28</MicrosoftCodeAnalysisDebuggingVersion>
+    <MicrosoftCodeAnalysisPooledObjectsVersion>3.6.0-beta1-20111-10</MicrosoftCodeAnalysisPooledObjectsVersion>
+    <MicrosoftCodeAnalysisDebuggingVersion>3.6.0-beta1-20111-10</MicrosoftCodeAnalysisDebuggingVersion>
     <!-- CoreFX -->
     <SystemCollectionsImmutableVersion>1.5.0</SystemCollectionsImmutableVersion>
     <SystemReflectionMetadataVersion>1.6.0</SystemReflectionMetadataVersion>
