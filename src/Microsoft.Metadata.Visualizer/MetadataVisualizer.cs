@@ -62,38 +62,36 @@ namespace Microsoft.Metadata.Tools
         private sealed class TableBuilder
         {
             private readonly string _title;
+            private readonly string[] _header;
             private readonly List<(string[] fields, string details)> _rows;
 
             public char HorizontalSeparatorChar = '=';
             public string Indent = "";
-            public bool NumberLines = true;
+            public int FirstRowNumber = 1;
 
             public TableBuilder(string title, params string[] header)
             {
-                _title = title;
                 _rows = new List<(string[] fields, string details)>();
-                _rows.Add((header, details: null));
+                _title = title;
+                _header = header;
             }
 
             public int RowCount
-                => _rows.Count - 1;
+                => _rows.Count;
 
             public void AddRow(params string[] fields)
                 => AddRowWithDetails(fields, details: null);
 
             public void AddRowWithDetails(string[] fields, string details)
             {
-                Debug.Assert(_rows.Count > 0 && _rows.Last().fields.Length == fields.Length);
+                Debug.Assert(_header.Length == fields.Length);
                 _rows.Add((fields, details));
             }
 
             public void WriteTo(TextWriter writer)
             {
-                Debug.Assert(_rows.Count > 0);
-
-                if (_rows.Count == 1)
+                if (_rows.Count == 0)
                 {
-                    _rows.Clear();
                     return;
                 }
 
@@ -104,53 +102,62 @@ namespace Microsoft.Metadata.Tools
                 }
 
                 string columnSeparator = "  ";
-                int rowNumberWidth = _rows.Count.ToString("x").Length;
+                var columnWidths = new int[_rows.First().fields.Length];
 
-                int[] columnWidths = new int[_rows.First().fields.Length];
-                foreach (var row in _rows)
+                void updateColumnWidths( string[] fields)
                 {
-                    for (int c = 0; c < row.fields.Length; c++)
+                    for (int i = 0; i < fields.Length; i++)
                     {
-                        columnWidths[c] = Math.Max(columnWidths[c], row.fields[c].Length + columnSeparator.Length);
+                        columnWidths[i] = Math.Max(columnWidths[i], fields[i].Length + columnSeparator.Length);
                     }
                 }
 
+                updateColumnWidths(_header);
+
+                foreach (var (fields, _) in _rows)
+                {
+                    updateColumnWidths(fields);
+                }
+
+                void writeRow(string[] fields)
+                {
+                    for (int i = 0; i < fields.Length; i++)
+                    {
+                        var field = fields[i];
+
+                        writer.Write(field);
+                        writer.Write(new string(' ', columnWidths[i] - field.Length));
+                    }
+                }
+
+                // header:
+                int rowNumberWidth = (FirstRowNumber + _rows.Count - 1).ToString("x").Length;
                 int tableWidth = Math.Max(_title?.Length ?? 0, columnWidths.Sum() + columnWidths.Length);
                 string horizontalSeparator = new string(HorizontalSeparatorChar, tableWidth);
 
-                for (int r = 0; r < _rows.Count; r++)
+                writer.Write(Indent);
+                writer.WriteLine(horizontalSeparator);
+
+                writer.Write(Indent);
+                writer.Write(new string(' ', rowNumberWidth + 2));
+
+                writeRow(_header);
+
+                writer.WriteLine();
+                writer.Write(Indent);
+                writer.WriteLine(horizontalSeparator);
+
+                // rows:
+                int rowNumber = FirstRowNumber;
+                foreach (var (fields, details) in _rows)
                 {
-                    var (fields, details) = _rows[r];
-
+                    string rowNumberStr = rowNumber.ToString("x");
                     writer.Write(Indent);
-                    
-                    // header
-                    if (r == 0)
-                    {
-                        writer.WriteLine(horizontalSeparator);
-                        writer.Write(Indent);
+                    writer.Write(new string(' ', rowNumberWidth - rowNumberStr.Length));
+                    writer.Write(rowNumberStr);
+                    writer.Write(": ");
 
-                        if (NumberLines)
-                        {
-                            writer.Write(new string(' ', rowNumberWidth + 2));
-                        }
-                    }
-                    else if (NumberLines)
-                    {
-                        string rowNumber = r.ToString("x");
-                        writer.Write(new string(' ', rowNumberWidth - rowNumber.Length));
-                        writer.Write(rowNumber);
-                        writer.Write(": ");
-                    }
-                    
-                    for (int c = 0; c < fields.Length; c++)
-                    {
-                        var field = fields[c];
-
-                        writer.Write(field);
-                        writer.Write(new string(' ', columnWidths[c] - field.Length));
-                    }
-
+                    writeRow(fields);
                     writer.WriteLine();
 
                     if (details != null)
@@ -159,12 +166,7 @@ namespace Microsoft.Metadata.Tools
                         writer.Write(details);
                     }
 
-                    // header
-                    if (r == 0)
-                    {
-                        writer.Write(Indent); 
-                        writer.WriteLine(horizontalSeparator);
-                    }
+                    rowNumber++;
                 }
             }
         }
@@ -2149,6 +2151,7 @@ namespace Microsoft.Metadata.Tools
             {
                 HorizontalSeparatorChar = '-',
                 Indent = "  ",
+                FirstRowNumber = 0,
             };
 
             while (reader.RemainingBytes > 0)
@@ -2197,7 +2200,7 @@ namespace Microsoft.Metadata.Tools
                     break;
                 }
 
-                builder.Append($"  '{key}': ");
+                builder.Append($"  {key}: ");
 
                 var value = TryReadUtf8NullTerminated(ref reader);
                 if (value == null)
@@ -2206,7 +2209,7 @@ namespace Microsoft.Metadata.Tools
                     break;
                 }
 
-                builder.AppendLine($"'{value}'");
+                builder.AppendLine(value);
             }
 
             builder.AppendLine("}");
