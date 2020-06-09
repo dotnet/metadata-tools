@@ -10,7 +10,6 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 using System.Text;
 using Microsoft.CodeAnalysis.Debugging;
 using Roslyn.Utilities;
@@ -22,7 +21,7 @@ namespace Microsoft.Metadata.Tools
     {
         None = 0,
         ShortenBlobs = 1,
-        NoHeapReferences = 1 << 1,
+        NoHeapReferences = 1 << 1
     }
 
     public sealed partial class MetadataVisualizer
@@ -60,6 +59,116 @@ namespace Microsoft.Metadata.Tools
             Count
         }
 
+        private sealed class TableBuilder
+        {
+            private readonly string _title;
+            private readonly List<(string[] fields, string details)> _rows;
+
+            public char HorizontalSeparatorChar = '=';
+            public string Indent = "";
+            public bool NumberLines = true;
+
+            public TableBuilder(string title, params string[] header)
+            {
+                _title = title;
+                _rows = new List<(string[] fields, string details)>();
+                _rows.Add((header, details: null));
+            }
+
+            public int RowCount
+                => _rows.Count - 1;
+
+            public void AddRow(params string[] fields)
+                => AddRowWithDetails(fields, details: null);
+
+            public void AddRowWithDetails(string[] fields, string details)
+            {
+                Debug.Assert(_rows.Count > 0 && _rows.Last().fields.Length == fields.Length);
+                _rows.Add((fields, details));
+            }
+
+            public void WriteTo(TextWriter writer)
+            {
+                Debug.Assert(_rows.Count > 0);
+
+                if (_rows.Count == 1)
+                {
+                    _rows.Clear();
+                    return;
+                }
+
+                if (_title != null)
+                {
+                    writer.Write(Indent);
+                    writer.WriteLine(_title);
+                }
+
+                string columnSeparator = "  ";
+                int rowNumberWidth = _rows.Count.ToString("x").Length;
+
+                int[] columnWidths = new int[_rows.First().fields.Length];
+                foreach (var row in _rows)
+                {
+                    for (int c = 0; c < row.fields.Length; c++)
+                    {
+                        columnWidths[c] = Math.Max(columnWidths[c], row.fields[c].Length + columnSeparator.Length);
+                    }
+                }
+
+                int tableWidth = Math.Max(_title?.Length ?? 0, columnWidths.Sum() + columnWidths.Length);
+                string horizontalSeparator = new string(HorizontalSeparatorChar, tableWidth);
+
+                for (int r = 0; r < _rows.Count; r++)
+                {
+                    var (fields, details) = _rows[r];
+
+                    writer.Write(Indent);
+                    
+                    // header
+                    if (r == 0)
+                    {
+                        writer.WriteLine(horizontalSeparator);
+                        writer.Write(Indent);
+
+                        if (NumberLines)
+                        {
+                            writer.Write(new string(' ', rowNumberWidth + 2));
+                        }
+                    }
+                    else if (NumberLines)
+                    {
+                        string rowNumber = r.ToString("x");
+                        writer.Write(new string(' ', rowNumberWidth - rowNumber.Length));
+                        writer.Write(rowNumber);
+                        writer.Write(": ");
+                    }
+                    
+                    for (int c = 0; c < fields.Length; c++)
+                    {
+                        var field = fields[c];
+
+                        writer.Write(field);
+                        writer.Write(new string(' ', columnWidths[c] - field.Length));
+                    }
+
+                    writer.WriteLine();
+
+                    if (details != null)
+                    {
+                        writer.Write(Indent);
+                        writer.Write(details);
+                    }
+
+                    // header
+                    if (r == 0)
+                    {
+                        writer.Write(Indent); 
+                        writer.WriteLine(horizontalSeparator);
+                    }
+                }
+            }
+        }
+
         private readonly TextWriter _writer;
         private readonly IReadOnlyList<MetadataReader> _readers;
         private readonly MetadataAggregator _aggregator;
@@ -70,7 +179,6 @@ namespace Microsoft.Metadata.Tools
         private readonly ImmutableArray<ImmutableArray<EntityHandle>> _encMaps;
 
         private MetadataReader _reader;
-        private readonly List<string[]> _pendingRows = new List<string[]>();
         private readonly Dictionary<BlobHandle, BlobKind> _blobKinds = new Dictionary<BlobHandle, BlobKind>();
 
         private MetadataVisualizer(TextWriter writer, IReadOnlyList<MetadataReader> readers, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
@@ -164,101 +272,23 @@ namespace Microsoft.Metadata.Tools
 
         private bool IsDelta => _reader.GetTableRowCount(TableIndex.EncLog) > 0;
 
-        private void WriteTableName(TableIndex index)
-        {
-            WriteRows(MakeTableName(index));
-        }
-
         private string MakeTableName(TableIndex index)
-        {
-            return $"{index} (index: 0x{(byte)index:X2}, size: {_reader.GetTableRowCount(index) * _reader.GetTableRowSize(index)}): ";
-        }
+            => $"{index} (index: 0x{(byte)index:X2}, size: {_reader.GetTableRowCount(index) * _reader.GetTableRowSize(index)}): ";
 
-        private void AddHeader(params string[] header)
+        private void WriteTable(TableBuilder table)
         {
-            Debug.Assert(_pendingRows.Count == 0);
-            _pendingRows.Add(header);
-        }
-
-        private void AddRow(params string[] fields)
-        {
-            Debug.Assert(_pendingRows.Count > 0 && _pendingRows.Last().Length == fields.Length);
-            _pendingRows.Add(fields);
-        }
-
-        private void WriteRows(string title)
-        {
-            Debug.Assert(_pendingRows.Count > 0);
-
-            if (_pendingRows.Count == 1)
+            if (table.RowCount > 0)
             {
-                _pendingRows.Clear();
-                return;
-            }
-
-            _writer.Write(title);
-            _writer.WriteLine();
-
-            string columnSeparator = "  ";
-            int rowNumberWidth = _pendingRows.Count.ToString("x").Length;
-
-            int[] columnWidths = new int[_pendingRows.First().Length];
-            foreach (var row in _pendingRows)
-            {
-                for (int c = 0; c < row.Length; c++)
-                {
-                    columnWidths[c] = Math.Max(columnWidths[c], row[c].Length + columnSeparator.Length);
-                }
-            }
-
-            int tableWidth = columnWidths.Sum() + columnWidths.Length;
-            string horizontalSeparator = new string('=', tableWidth);
-
-            for (int r = 0; r < _pendingRows.Count; r++)
-            {
-                var row = _pendingRows[r];
-
-                // header
-                if (r == 0)
-                {
-                    _writer.WriteLine(horizontalSeparator);
-                    _writer.Write(new string(' ', rowNumberWidth + 2));
-                }
-                else
-                {
-                    string rowNumber = r.ToString("x");
-                    _writer.Write(new string(' ', rowNumberWidth - rowNumber.Length));
-                    _writer.Write(rowNumber);
-                    _writer.Write(": ");
-                }
-
-                for (int c = 0; c < row.Length; c++)
-                {
-                    var field = row[c];
-
-                    _writer.Write(field);
-                    _writer.Write(new string(' ', columnWidths[c] - field.Length));
-                }
-
+                table.WriteTo(_writer);
                 _writer.WriteLine();
-
-                // header
-                if (r == 0)
-                {
-                    _writer.WriteLine(horizontalSeparator);
-                }
             }
-
-            _writer.WriteLine();
-            _pendingRows.Clear();
         }
 
         private EntityHandle GetAggregateHandle(EntityHandle generationHandle, int generation)
         {
             var encMap = _encMaps[generation - 1];
 
-            int start, count;
-            if (!TryGetHandleRange(encMap, generationHandle.Kind, out start, out count))
+            if (!TryGetHandleRange(encMap, generationHandle.Kind, out int start, out _))
             {
                 throw new BadImageFormatException(string.Format("EncMap is missing record for {0:8X}.", MetadataTokens.GetToken(generationHandle)));
             }
@@ -342,6 +372,10 @@ namespace Microsoft.Metadata.Tools
             return "{" + guid + "}";
         }
 
+        // TODO: update Microsoft.CodeAnalysis.Debugging package and remove
+        public static readonly Guid CompilationMetadataReferences = new Guid("7E4D4708-096E-4C5C-AEDA-CB10BA6A740D");
+        public static readonly Guid CompilationOptions = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD8");
+
         private string GetCustomDebugInformationKind(Guid guid)
         {
             if (guid == PortableCustomDebugInfoKinds.AsyncMethodSteppingInformationBlob) return "Async Method Stepping Information";
@@ -353,6 +387,8 @@ namespace Microsoft.Metadata.Tools
             if (guid == PortableCustomDebugInfoKinds.EncLambdaAndClosureMap) return "EnC Lambda and Closure Map";
             if (guid == PortableCustomDebugInfoKinds.EmbeddedSource) return "Embedded Source";
             if (guid == PortableCustomDebugInfoKinds.SourceLink) return "Source Link";
+            if (guid == CompilationMetadataReferences) return "Compilation Metadata References";
+            if (guid == CompilationOptions) return "Compilation Options";
 
             return "{" + guid + "}";
         }
@@ -360,7 +396,7 @@ namespace Microsoft.Metadata.Tools
         private string Language(Func<GuidHandle> getHandle) =>
             Literal(() => getHandle(), (r, h) => GetLanguage(r.GetGuid((GuidHandle)h)));
 
-        private string HashAlgorithm(Func<GuidHandle> getHandle) => 
+        private string HashAlgorithm(Func<GuidHandle> getHandle) =>
             Literal(() => getHandle(), (r, h) => GetHashAlgorithm(r.GetGuid((GuidHandle)h)));
 
         private string CustomDebugInformationKind(Func<GuidHandle> getHandle) =>
@@ -484,7 +520,7 @@ namespace Microsoft.Metadata.Tools
             return builder.ToString();
         }
 
-        private string Literal(Func<BlobHandle> getHandle, BlobKind kind) => 
+        private string Literal(Func<BlobHandle> getHandle, BlobKind kind) =>
             Literal(getHandle, kind, (r, h) => BitConverter.ToString(r.GetBlobBytes(h)));
 
         private string Literal(Func<BlobHandle> getHandle, BlobKind kind, Func<MetadataReader, BlobHandle, string> getValue)
@@ -507,13 +543,13 @@ namespace Microsoft.Metadata.Tools
             return Literal(handle, (r, h) => getValue(r, (BlobHandle)h));
         }
 
-        private string Literal(Func<StringHandle> getHandle) => 
+        private string Literal(Func<StringHandle> getHandle) =>
             Literal(() => getHandle(), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((StringHandle)h)) + "'");
 
         private string Literal(Func<NamespaceDefinitionHandle> getHandle) =>
             Literal(() => getHandle(), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((NamespaceDefinitionHandle)h)) + "'");
 
-        private string Literal(Func<GuidHandle> getHandle) => 
+        private string Literal(Func<GuidHandle> getHandle) =>
             Literal(() => getHandle(), (r, h) => "{" + r.GetGuid((GuidHandle)h) + "}");
 
         private string Literal(Func<Handle> getHandle, Func<MetadataReader, Handle, string> getValue)
@@ -674,7 +710,7 @@ namespace Microsoft.Metadata.Tools
 
         private static string EnumValue<TIntegral>(Func<object> getValue) where TIntegral : IEquatable<TIntegral>
         {
-            object value; 
+            object value;
 
             try
             {
@@ -856,7 +892,8 @@ namespace Microsoft.Metadata.Tools
 
             var def = _reader.GetModuleDefinition();
 
-            AddHeader(
+            var table = new TableBuilder(
+                "Module (0x00):",
                 "Gen",
                 "Name",
                 "Mvid",
@@ -864,19 +901,20 @@ namespace Microsoft.Metadata.Tools
                 "EncBaseId"
             );
 
-            AddRow(
+            table.AddRow(
                 ToString(() => def.Generation),
                 Literal(() => def.Name),
                 Literal(() => def.Mvid),
                 Literal(() => def.GenerationId),
                 Literal(() => def.BaseGenerationId));
 
-            WriteRows("Module (0x00):");
+            WriteTable(table);
         }
 
         private void WriteTypeRef()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "TypeRef (0x01):",
                 "Scope",
                 "Name",
                 "Namespace"
@@ -886,19 +924,20 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetTypeReference(handle);
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.ResolutionScope),
                     Literal(() => entry.Name),
                     Literal(() => entry.Namespace)
                 );
             }
 
-            WriteRows("TypeRef (0x01):");
+            WriteTable(table);
         }
 
         private void WriteTypeDef()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "TypeDef (0x02):",
                 "Name",
                 "Namespace",
                 "EnclosingType",
@@ -920,7 +959,7 @@ namespace Microsoft.Metadata.Tools
                 // TODO: Visualize InterfaceImplementations
                 var implementedInterfaces = entry.GetInterfaceImplementations().Select(h => _reader.GetInterfaceImplementation(h).Interface).ToArray();
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     Literal(() => entry.Namespace),
                     Token(() => entry.GetDeclaringType()),
@@ -934,12 +973,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("TypeDef (0x02):");
+            WriteTable(table);
         }
 
         private void WriteField()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "Field (0x04):",
                 "Name",
                 "Signature",
                 "Attributes",
@@ -952,12 +992,12 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetFieldDefinition(handle);
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     FieldSignature(() => entry.Signature),
                     EnumValue<int>(() => entry.Attributes),
                     Literal(() => entry.GetMarshallingDescriptor(), BlobKind.Marshalling),
-                    ToString(() => 
+                    ToString(() =>
                     {
                         int offset = entry.GetOffset();
                         return offset >= 0 ? offset.ToString() : "n/a";
@@ -966,12 +1006,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("Field (0x04):");
+            WriteTable(table);
         }
 
         private void WriteMethod()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "Method (0x06, 0x1C):",
                 "Name",
                 "Signature",
                 "RVA",
@@ -989,7 +1030,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetMethodDefinition(handle);
                 var import = entry.GetImport();
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     MethodSignature(() => entry.Signature),
                     Int32Hex(() => entry.RelativeVirtualAddress),
@@ -1003,12 +1044,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("Method (0x06, 0x1C):");
+            WriteTable(table);
         }
 
         private void WriteParam()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "Param (0x08):",
                 "Name",
                 "Seq#",
                 "Attributes",
@@ -1019,7 +1061,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetParameter(MetadataTokens.ParameterHandle(i));
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     ToString(() => entry.SequenceNumber),
                     EnumValue<int>(() => entry.Attributes),
@@ -1027,12 +1069,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("Param (0x08):");
+            WriteTable(table);
         }
 
         private void WriteMemberRef()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "MemberRef (0x0a):",
                 "Parent",
                 "Name",
                 "Signature"
@@ -1042,19 +1085,20 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetMemberReference(handle);
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Parent),
                     Literal(() => entry.Name),
                     MemberReferenceSignature(() => entry.Signature)
                 );
             }
 
-            WriteRows("MemberRef (0x0a):");
+            WriteTable(table);
         }
 
         private void WriteConstant()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "Constant (0x0b):",
                 "Parent",
                 "Type",
                 "Value"
@@ -1064,19 +1108,20 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetConstant(MetadataTokens.ConstantHandle(i));
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Parent),
                     EnumValue<byte>(() => entry.TypeCode),
                     Literal(() => entry.Value, BlobKind.ConstantValue)
                 );
             }
 
-            WriteRows("Constant (0x0b):");
+            WriteTable(table);
         }
 
         private void WriteCustomAttribute()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "CustomAttribute (0x0c):",
                 "Parent",
                 "Constructor",
                 "Value"
@@ -1086,19 +1131,20 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetCustomAttribute(handle);
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Parent),
                     Token(() => entry.Constructor),
                     Literal(() => entry.Value, BlobKind.CustomAttribute)
                 );
             }
 
-            WriteRows("CustomAttribute (0x0c):");
+            WriteTable(table);
         }
 
         private void WriteDeclSecurity()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "DeclSecurity (0x0e):",
                 "Parent",
                 "PermissionSet",
                 "Action"
@@ -1108,32 +1154,36 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetDeclarativeSecurityAttribute(handle);
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Parent),
                     Literal(() => entry.PermissionSet, BlobKind.PermissionSet),
                     EnumValue<short>(() => entry.Action)
                 );
             }
 
-            WriteRows("DeclSecurity (0x0e):");
+            WriteTable(table);
         }
 
         private void WriteStandAloneSig()
         {
-            AddHeader("Signature");
+            var table = new TableBuilder(
+                "StandAloneSig (0x11):",
+                "Signature"
+            );
 
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.StandAloneSig); i <= count; i++)
             {
                 var entry = _reader.GetStandaloneSignature(MetadataTokens.StandaloneSignatureHandle(i));
-                AddRow(StandaloneSignature(() => entry.Signature));
+                table.AddRow(StandaloneSignature(() => entry.Signature));
             }
 
-            WriteRows("StandAloneSig (0x11):");
+            WriteTable(table);
         }
 
         private void WriteEvent()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "Event (0x12, 0x14, 0x18):",
                 "Name",
                 "Add",
                 "Remove",
@@ -1146,7 +1196,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetEventDefinition(handle);
                 var accessors = entry.GetAccessors();
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     Token(() => accessors.Adder),
                     Token(() => accessors.Remover),
@@ -1155,12 +1205,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("Event (0x12, 0x14, 0x18):");
+            WriteTable(table);
         }
 
         private void WriteProperty()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "Property (0x15, 0x17, 0x18):",
                 "Name",
                 "Get",
                 "Set",
@@ -1172,7 +1223,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetPropertyDefinition(handle);
                 var accessors = entry.GetAccessors();
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     Token(() => accessors.Getter),
                     Token(() => accessors.Setter),
@@ -1180,12 +1231,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("Property (0x15, 0x17, 0x18):");
+            WriteTable(table);
         }
 
         private void WriteMethodImpl()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "MethodImpl (0x19):",
                 "Type",
                 "Body",
                 "Declaration"
@@ -1195,69 +1247,75 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetMethodImplementation(MetadataTokens.MethodImplementationHandle(i));
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Type),
                     Token(() => entry.MethodBody),
                     Token(() => entry.MethodDeclaration)
                 );
             }
 
-            WriteRows("MethodImpl (0x19):");
+            WriteTable(table);
         }
 
         private void WriteModuleRef()
         {
-            AddHeader("Name");
+            var table = new TableBuilder(
+                "ModuleRef (0x1a):",
+                "Name"
+            );
 
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.ModuleRef); i <= count; i++)
             {
                 var entry = _reader.GetModuleReference(MetadataTokens.ModuleReferenceHandle(i));
-                AddRow(Literal(() => entry.Name));
+                table.AddRow(Literal(() => entry.Name));
             }
 
-            WriteRows("ModuleRef (0x1a):");
+            WriteTable(table);
         }
 
         private void WriteTypeSpec()
         {
-            AddHeader("Name");
+            var table = new TableBuilder(
+                "TypeSpec (0x1b):",
+                "Name");
 
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.TypeSpec); i <= count; i++)
             {
                 var entry = _reader.GetTypeSpecification(MetadataTokens.TypeSpecificationHandle(i));
-                AddRow(TypeSpecificationSignature(() => entry.Signature));
+                table.AddRow(TypeSpecificationSignature(() => entry.Signature));
             }
 
-            WriteRows("TypeSpec (0x1b):");
+            WriteTable(table);
         }
 
         private void WriteEnCLog()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "EnC Log (0x1e):",
                 "Entity",
                 "Operation");
 
             foreach (var entry in _reader.GetEditAndContinueLogEntries())
             {
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Handle),
                     EnumValue<int>(() => entry.Operation));
             }
 
-            WriteRows("EnC Log (0x1e):");
+            WriteTable(table);
         }
 
         private void WriteEnCMap()
         {
+            TableBuilder table;
             if (_aggregator != null)
             {
-                AddHeader("Entity", "Gen", "Row", "Edit");
+                table = new TableBuilder("EnC Map (0x1f):", "Entity", "Gen", "Row", "Edit");
             }
             else
             {
-                AddHeader("Entity");
+                table = new TableBuilder("EnC Map (0x1f):", "Entity");
             }
-
 
             foreach (var entry in _reader.GetEditAndContinueMapEntries())
             {
@@ -1269,7 +1327,7 @@ namespace Microsoft.Metadata.Tools
 
                     var primaryModule = _readers[generation].GetModuleDefinition();
 
-                    AddRow(
+                    table.AddRow(
                         Token(() => entry),
                         ToString(() => primaryModule.Generation),
                         "0x" + MetadataTokens.GetRowNumber(primary).ToString("x6"),
@@ -1277,11 +1335,11 @@ namespace Microsoft.Metadata.Tools
                 }
                 else
                 {
-                    AddRow(Token(() => entry));
+                    table.AddRow(Token(() => entry));
                 }
             }
 
-            WriteRows("EnC Map (0x1f):");
+            WriteTable(table);
         }
 
         private void WriteAssembly()
@@ -1291,7 +1349,8 @@ namespace Microsoft.Metadata.Tools
                 return;
             }
 
-            AddHeader(
+            var table = new TableBuilder(
+                "Assembly (0x20):",
                 "Name",
                 "Version",
                 "Culture",
@@ -1302,7 +1361,7 @@ namespace Microsoft.Metadata.Tools
 
             var entry = _reader.GetAssemblyDefinition();
 
-            AddRow(
+            table.AddRow(
                 Literal(() => entry.Name),
                 Version(() => entry.Version),
                 Literal(() => entry.Culture),
@@ -1311,12 +1370,13 @@ namespace Microsoft.Metadata.Tools
                 EnumValue<int>(() => entry.HashAlgorithm)
             );
 
-            WriteRows("Assembly (0x20):");
+            WriteTable(table);
         }
 
         private void WriteAssemblyRef()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "AssemblyRef (0x23):",
                 "Name",
                 "Version",
                 "Culture",
@@ -1328,7 +1388,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetAssemblyReference(handle);
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     Version(() => entry.Version),
                     Literal(() => entry.Culture),
@@ -1337,12 +1397,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("AssemblyRef (0x23):");
+            WriteTable(table);
         }
 
         private void WriteFile()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "File (0x26):",
                 "Name",
                 "Metadata",
                 "HashValue"
@@ -1352,19 +1413,20 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetAssemblyFile(handle);
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     entry.ContainsMetadata ? "Yes" : "No",
                     Literal(() => entry.HashValue, BlobKind.FileHash)
                 );
             }
 
-            WriteRows("File (0x26):");
+            WriteTable(table);
         }
 
         private void WriteExportedType()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "ExportedType (0x27):",
                 "Name",
                 "Namespace",
                 "Attributes",
@@ -1378,7 +1440,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetExportedType(handle);
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     Literal(() => entry.Namespace),
                     ToString(() => ((entry.Attributes & TypeForwarder) == TypeForwarder ? "TypeForwarder, " : "") + (entry.Attributes & ~TypeForwarder).ToString()),
@@ -1387,12 +1449,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("ExportedType (0x27):");
+            WriteTable(table);
         }
 
         private void WriteManifestResource()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "ManifestResource (0x28):",
                 "Name",
                 "Attributes",
                 "Offset",
@@ -1403,7 +1466,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetManifestResource(handle);
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     ToString(() => entry.Attributes),
                     ToString(() => entry.Offset),
@@ -1411,12 +1474,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("ManifestResource (0x28):");
+            WriteTable(table);
         }
 
         private void WriteGenericParam()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "GenericParam (0x2a):",
                 "Name",
                 "Seq#",
                 "Attributes",
@@ -1428,7 +1492,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetGenericParameter(MetadataTokens.GenericParameterHandle(i));
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     ToString(() => entry.Index),
                     EnumValue<int>(() => entry.Attributes),
@@ -1437,12 +1501,13 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteRows("GenericParam (0x2a):");
+            WriteTable(table);
         }
 
         private void WriteMethodSpec()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "MethodSpec (0x2b):",
                 "Method",
                 "Signature"
             );
@@ -1451,18 +1516,19 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetMethodSpecification(MetadataTokens.MethodSpecificationHandle(i));
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Method),
                     MethodSpecificationSignature(() => entry.Signature)
                 );
             }
 
-            WriteRows("MethodSpec (0x2b):");
+            WriteTable(table);
         }
 
         private void WriteGenericParamConstraint()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                "GenericParamConstraint (0x2c):",
                 "Parent",
                 "Type"
             );
@@ -1471,13 +1537,13 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetGenericParameterConstraint(MetadataTokens.GenericParameterConstraintHandle(i));
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Parameter),
                     Token(() => entry.Type)
                 );
             }
 
-            WriteRows("GenericParamConstraint (0x2c):");
+            WriteTable(table);
         }
 
         private void WriteUserStrings()
@@ -1654,7 +1720,8 @@ namespace Microsoft.Metadata.Tools
 
         public void WriteDocument()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                MakeTableName(TableIndex.Document),
                 "Name",
                 "Language",
                 "HashAlgorithm",
@@ -1665,7 +1732,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetDocument(handle);
 
-                AddRow(
+                table.AddRow(
                     DocumentName(() => entry.Name),
                     Language(() => entry.Language),
                     HashAlgorithm(() => entry.HashAlgorithm),
@@ -1673,7 +1740,7 @@ namespace Microsoft.Metadata.Tools
                );
             }
 
-            WriteTableName(TableIndex.Document);
+            WriteTable(table);
         }
 
         public void WriteMethodDebugInformation()
@@ -1683,8 +1750,12 @@ namespace Microsoft.Metadata.Tools
                 return;
             }
 
-            _writer.WriteLine(MakeTableName(TableIndex.MethodDebugInformation));
-            _writer.WriteLine(new string('=', 50));
+            var table = new TableBuilder(
+                MakeTableName(TableIndex.MethodDebugInformation),
+                "IL"
+            );
+
+            var detailsBuilder = new StringBuilder();
 
             foreach (var handle in _reader.MethodDebugInformation)
             {
@@ -1707,64 +1778,71 @@ namespace Microsoft.Metadata.Tools
                     hasSingleDocument = hasSequencePoints = false;
                 }
 
-                _writer.WriteLine($"{MetadataTokens.GetRowNumber(handle):x}: {HeapOffset(() => entry.SequencePointsBlob)}");
+                string details;
 
-                if (!hasSequencePoints)
+                if (hasSequencePoints)
                 {
-                    continue;
-                }
+                    _blobKinds[entry.SequencePointsBlob] = BlobKind.SequencePoints;
 
-                _blobKinds[entry.SequencePointsBlob] = BlobKind.SequencePoints;
+                    detailsBuilder.Clear();
+                    detailsBuilder.AppendLine("{");
 
-                _writer.WriteLine("{");
+                    bool addLineBreak = false;
 
-                bool addLineBreak = false;
-
-                if (!TryGetValue(() => entry.GetStateMachineKickoffMethod(), out var kickoffMethod) || !kickoffMethod.IsNil)
-                {
-                    _writer.WriteLine($"  Kickoff Method: {(kickoffMethod.IsNil ? BadMetadataStr : Token(kickoffMethod))}");
-                    addLineBreak = true;
-                }
-
-                if (!TryGetValue(() => entry.LocalSignature, out var localSignature) || !localSignature.IsNil)
-                {
-                    _writer.WriteLine($"  Locals: {(localSignature.IsNil ? BadMetadataStr : Token(localSignature))}");
-                    addLineBreak = true;
-                }
-
-                if (hasSingleDocument)
-                {
-                    _writer.WriteLine($"  Document: {RowId(() => entry.Document)}");
-                    addLineBreak = true;
-                }
-
-                if (addLineBreak)
-                {
-                    _writer.WriteLine();
-                }
-
-                try
-                {
-                    foreach (var sequencePoint in entry.GetSequencePoints())
+                    if (!TryGetValue(() => entry.GetStateMachineKickoffMethod(), out var kickoffMethod) || !kickoffMethod.IsNil)
                     {
-                        _writer.Write("  ");
-                        _writer.WriteLine(SequencePoint(sequencePoint, includeDocument: !hasSingleDocument));
+                        detailsBuilder.AppendLine($"  Kickoff Method: {(kickoffMethod.IsNil ? BadMetadataStr : Token(kickoffMethod))}");
+                        addLineBreak = true;
                     }
+
+                    if (!TryGetValue(() => entry.LocalSignature, out var localSignature) || !localSignature.IsNil)
+                    {
+                        detailsBuilder.AppendLine($"  Locals: {(localSignature.IsNil ? BadMetadataStr : Token(localSignature))}");
+                        addLineBreak = true;
+                    }
+
+                    if (hasSingleDocument)
+                    {
+                        detailsBuilder.AppendLine($"  Document: {RowId(() => entry.Document)}");
+                        addLineBreak = true;
+                    }
+
+                    if (addLineBreak)
+                    {
+                        detailsBuilder.AppendLine();
+                    }
+
+                    try
+                    {
+                        foreach (var sequencePoint in entry.GetSequencePoints())
+                        {
+                            detailsBuilder.Append("  ");
+                            detailsBuilder.AppendLine(SequencePoint(sequencePoint, includeDocument: !hasSingleDocument));
+                        }
+                    }
+                    catch (BadImageFormatException)
+                    {
+                        detailsBuilder.AppendLine("  " + BadMetadataStr);
+                    }
+
+                    detailsBuilder.AppendLine("}");
+                    details = detailsBuilder.ToString();
                 }
-                catch (BadImageFormatException)
+                else
                 {
-                    _writer.WriteLine("  " + BadMetadataStr);
+                    details = null;
                 }
 
-                _writer.WriteLine("}");
+                table.AddRowWithDetails(new[] { HeapOffset(() => entry.SequencePointsBlob) }, details);
             }
 
-            _writer.WriteLine();
+            WriteTable(table);
         }
 
         public void WriteLocalScope()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                MakeTableName(TableIndex.LocalScope),
                 "Method",
                 "ImportScope",
                 "Variables",
@@ -1777,7 +1855,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetLocalScope(handle);
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Method),
                     Token(() => entry.ImportScope),
                     TokenRange(entry.GetLocalVariables(), h => h),
@@ -1787,12 +1865,13 @@ namespace Microsoft.Metadata.Tools
                );
             }
 
-            WriteTableName(TableIndex.LocalScope);
+            WriteTable(table);
         }
 
         public void WriteLocalVariable()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                MakeTableName(TableIndex.LocalVariable),
                 "Name",
                 "Index",
                 "Attributes"
@@ -1802,19 +1881,20 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetLocalVariable(handle);
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     Int32(() => entry.Index),
                     EnumValue<int>(() => entry.Attributes)
                );
             }
 
-            WriteTableName(TableIndex.LocalVariable);
+            WriteTable(table);
         }
 
         public void WriteLocalConstant()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                MakeTableName(TableIndex.LocalConstant),
                 "Name",
                 "Signature"
             );
@@ -1823,13 +1903,13 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetLocalConstant(handle);
 
-                AddRow(
+                table.AddRow(
                     Literal(() => entry.Name),
                     Literal(() => entry.Signature, BlobKind.LocalConstantSignature, (r, h) => FormatLocalConstant(r, (BlobHandle)h))
                );
             }
 
-            WriteTableName(TableIndex.LocalConstant);
+            WriteTable(table);
         }
 
         private SignatureTypeCode ReadConstantTypeCode(ref BlobReader sigReader, List<string> modifiers)
@@ -1857,7 +1937,7 @@ namespace Microsoft.Metadata.Tools
 
             SignatureTypeCode typeCode = ReadConstantTypeCode(ref sigReader, modifiers);
 
-            Handle typeHandle = default(Handle);
+            Handle typeHandle = default;
             object value;
             if (IsPrimitiveType(typeCode))
             {
@@ -1936,7 +2016,8 @@ namespace Microsoft.Metadata.Tools
 
         public void WriteImportScope()
         {
-            AddHeader(
+            var table = new TableBuilder(
+                MakeTableName(TableIndex.ImportScope),
                 "Parent",
                 "Imports"
             );
@@ -1947,18 +2028,21 @@ namespace Microsoft.Metadata.Tools
 
                 _blobKinds[entry.ImportsBlob] = BlobKind.Imports;
 
-                AddRow(
+                table.AddRow(
                     Token(() => entry.Parent),
                     FormatImports(entry)
                );
             }
 
-            WriteTableName(TableIndex.ImportScope);
+            WriteTable(table);
         }
 
         public void WriteCustomDebugInformation()
         {
-            AddHeader(
+            const int BlobSizeLimit = 32;
+
+            var table = new TableBuilder(
+                MakeTableName(TableIndex.CustomDebugInformation),
                 "Parent",
                 "Kind",
                 "Value"
@@ -1968,14 +2052,165 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetCustomDebugInformation(handle);
 
-                AddRow(
-                    Token(() => entry.Parent),
-                    CustomDebugInformationKind(() => entry.Kind),
-                    Literal(() => entry.Value, BlobKind.CustomDebugInformation)
-               );
+                table.AddRowWithDetails(
+                    fields: new[]
+                    {
+                        Token(() => entry.Parent),
+                        CustomDebugInformationKind(() => entry.Kind),
+                        Literal(() => entry.Value, BlobKind.CustomDebugInformation, (r, h) =>
+                        {
+                            var blob = r.GetBlobBytes(h);
+                            int length = blob.Length;
+                            string suffix = "";
+
+                            if (blob.Length > BlobSizeLimit)
+                            {
+                                length = BlobSizeLimit;
+                                suffix = "-...";
+                            }
+
+                            return BitConverter.ToString(blob, 0, length) + suffix;
+                        })
+                    },
+                    details: TryDecodeCustomDebugInformation(entry)
+                );
             }
 
-            WriteTableName(TableIndex.CustomDebugInformation);
+            WriteTable(table);
+        }
+
+        public string TryDecodeCustomDebugInformation(CustomDebugInformation entry)
+        {
+            Guid kind;
+            BlobReader blobReader;
+
+            try
+            {
+                kind = _reader.GetGuid(entry.Kind);
+                blobReader = _reader.GetBlobReader(entry.Value);
+            }
+            catch
+            {
+                // error is already reported
+                return null;
+            }
+
+            if (kind == PortableCustomDebugInfoKinds.SourceLink)
+            {
+                return VisualizeSourceLink(blobReader);
+            }
+
+            if (kind == CompilationMetadataReferences)
+            {
+                return VisualizeCompilationMetadataReferences(blobReader);
+            }
+
+            if (kind == CompilationOptions)
+            {
+                return VisualizeCompilationOptions(blobReader);
+            }
+
+            return null;
+        }
+
+        private static string VisualizeSourceLink(BlobReader reader)
+            => reader.ReadUTF8(reader.RemainingBytes);
+
+        private static string TryReadUtf8NullTerminated(ref BlobReader reader)
+        {
+            var terminatorIndex = reader.IndexOf(0);
+            if (terminatorIndex == -1)
+            {
+                return null;
+            }
+
+            var value = reader.ReadUTF8(terminatorIndex);
+            _ = reader.ReadByte();
+            return value;
+        }
+
+        [Flags]
+        private enum MetadataReferenceFlags
+        {
+            Assembly = 1,
+            EmbedInteropTypes = 1 << 1,
+        }
+
+        private static string VisualizeCompilationMetadataReferences(BlobReader reader)
+        {
+            var table = new TableBuilder(
+                title: null,
+                "FileName",
+                "Aliases",
+                "Flags",
+                "TimeStamp",
+                "FileSize",
+                "MVID")
+            {
+                HorizontalSeparatorChar = '-',
+                Indent = "  ",
+            };
+
+            while (reader.RemainingBytes > 0)
+            {
+                var fileName = TryReadUtf8NullTerminated(ref reader);
+                var aliases = TryReadUtf8NullTerminated(ref reader);
+
+                string flags = null;
+                string timeStamp = null;
+                string fileSize = null;
+                string mvid = null;
+                
+                try { flags = ((MetadataReferenceFlags)reader.ReadByte()).ToString(); } catch { }
+                try { timeStamp = $"0x{reader.ReadUInt32():X8}"; } catch { }
+                try { fileSize = $"0x{reader.ReadUInt32():X8}"; } catch { }
+                try { mvid = reader.ReadGuid().ToString(); } catch { }
+
+                table.AddRow(
+                    (fileName != null) ? $"'{fileName}'" : BadMetadataStr,
+                    (aliases != null) ? $"'{string.Join("', '", aliases.Split(','))}'" : BadMetadataStr,
+                    flags ?? BadMetadataStr,
+                    timeStamp ?? BadMetadataStr,
+                    fileSize ?? BadMetadataStr,
+                    mvid ?? BadMetadataStr
+                );
+            }
+
+            var builder = new StringBuilder();
+            builder.AppendLine("{");
+            table.WriteTo(new StringWriter(builder));
+            builder.AppendLine("}");
+            return builder.ToString();
+        }
+
+        private static string VisualizeCompilationOptions(BlobReader reader)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("{");
+
+            while (reader.RemainingBytes > 0)
+            {
+                var key = TryReadUtf8NullTerminated(ref reader);
+                if (key == null)
+                {
+                    builder.AppendLine(BadMetadataStr);
+                    break;
+                }
+
+                builder.Append($"  '{key}': ");
+
+                var value = TryReadUtf8NullTerminated(ref reader);
+                if (value == null)
+                {
+                    builder.AppendLine(BadMetadataStr);
+                    break;
+                }
+
+                builder.AppendLine($"'{value}'");
+            }
+
+            builder.AppendLine("}");
+            return builder.ToString();
         }
 
         public void VisualizeMethodBody(MethodBodyBlock body, MethodDefinitionHandle generationHandle, int generation)
