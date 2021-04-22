@@ -40,7 +40,7 @@ namespace Microsoft.Metadata.Tools
         public Mdv(Arguments arguments)
         {
             _arguments = arguments;
-            _writer = (arguments.OutputPath != null) ? new StreamWriter(File.OpenWrite(arguments.OutputPath), Encoding.UTF8) : Console.Out;
+            _writer = (arguments.OutputPath != null) ? new StreamWriter(File.Create(arguments.OutputPath), Encoding.UTF8) : Console.Out;
         }
 
         public void Dispose()
