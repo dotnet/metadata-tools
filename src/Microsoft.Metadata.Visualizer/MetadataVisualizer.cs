@@ -2055,7 +2055,7 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetCustomDebugInformation(handle);
 
-                table.AddRowWithDetails( 
+                table.AddRowWithDetails(
                     fields: new[]
                     {
                         Token(() => entry.Parent),
@@ -2112,7 +2112,8 @@ namespace Microsoft.Metadata.Tools
             {
                 return VisualizeCompilationOptions(blobReader);
             }
-            if(kind ==  PortableCustomDebugInfoKinds.EmbeddedSource)
+
+            if (kind == PortableCustomDebugInfoKinds.EmbeddedSource)
             {
                  return VisualizeEmbeddedSource(blobReader);
             }
@@ -2220,14 +2221,14 @@ namespace Microsoft.Metadata.Tools
             builder.AppendLine("}");
             return builder.ToString();
         }
+
         private static string VisualizeEmbeddedSource(BlobReader reader)
         {
-            var utf8 = new UTF8Encoding();
             var builder = new StringBuilder();
             builder.AppendLine(">>>");
             int format = -1;
             try { format = reader.ReadInt32(); } catch { };
-            byte[] bytes= null;
+            byte[] bytes = null;
             try { bytes = reader.ReadBytes(reader.RemainingBytes); } catch { };
                 
            
@@ -2246,16 +2247,16 @@ namespace Microsoft.Metadata.Tools
                 {
                     bytes = null;
                 };
-       
             }
+
             if (format < 0 || bytes == null)
             {
                 builder.AppendLine(BadMetadataStr);
             }
             else
             {
-                builder.AppendLine(utf8.GetString(bytes));
-                builder.AppendLine("### End of Embedded Source");
+                builder.AppendLine(Encoding.UTF8.GetString(bytes));
+                builder.AppendLine("<<< End of Embedded Source");
             }
             return builder.ToString();
         }
