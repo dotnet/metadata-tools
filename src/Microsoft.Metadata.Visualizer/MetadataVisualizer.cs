@@ -2230,13 +2230,11 @@ namespace Microsoft.Metadata.Tools
             try { format = reader.ReadInt32(); } catch { };
             byte[] bytes = null;
             try { bytes = reader.ReadBytes(reader.RemainingBytes); } catch { };
-                
-           
+
             if (format > 0 && bytes != null)
             {
                 try
                 {
-
                     using var compressedStream = new MemoryStream(bytes, writable: false);
                     using var uncompressedStream = new MemoryStream();
                     using var deflate = new DeflateStream(compressedStream, CompressionMode.Decompress);
