@@ -22,7 +22,8 @@ namespace Microsoft.Metadata.Tools
     {
         None = 0,
         ShortenBlobs = 1,
-        NoHeapReferences = 1 << 1
+        NoHeapReferences = 1 << 1,
+        EmbeddedSource = 1 << 2
     }
 
     public sealed partial class MetadataVisualizer
@@ -2113,9 +2114,9 @@ namespace Microsoft.Metadata.Tools
                 return VisualizeCompilationOptions(blobReader);
             }
 
-            if (kind == PortableCustomDebugInfoKinds.EmbeddedSource)
+            if (kind == PortableCustomDebugInfoKinds.EmbeddedSource && _options.HasFlag(MetadataVisualizerOptions.EmbeddedSource))
             {
-                 return VisualizeEmbeddedSource(blobReader);
+                return VisualizeEmbeddedSource(blobReader);
             }
 
             return null;
@@ -2241,7 +2242,7 @@ namespace Microsoft.Metadata.Tools
                     deflate.CopyTo(uncompressedStream);
                     bytes = uncompressedStream.ToArray();
                 }
-                catch 
+                catch
                 {
                     bytes = null;
                 };

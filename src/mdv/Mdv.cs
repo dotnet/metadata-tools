@@ -231,7 +231,12 @@ namespace Microsoft.Metadata.Tools
         private void VisualizeGenerations(List<GenerationData> generations)
         {
             var mdReaders = generations.Select(g => g.MetadataReader).ToArray();
-            var visualizer = new MetadataVisualizer(mdReaders, _writer);
+
+            var options = _arguments.DisplayEmbeddedSource ?
+                MetadataVisualizerOptions.EmbeddedSource :
+                MetadataVisualizerOptions.None;
+
+            var visualizer = new MetadataVisualizer(mdReaders, _writer, options);
 
             for (int generationIndex = 0; generationIndex < generations.Count; generationIndex++)
             {

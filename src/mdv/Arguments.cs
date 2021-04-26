@@ -17,6 +17,7 @@ internal sealed class Arguments
     public bool DisplayIL { get; private set; }
     public bool DisplayEmbeddedPdb { get; private set; }
     public bool DisplayMetadata { get; private set; }
+    public bool DisplayEmbeddedSource { get; private set; }
     public string OutputPath { get; private set; }
     public ImmutableArray<string> FindRefs { get; private set; }
 
@@ -30,7 +31,8 @@ Parameters:
 /assemblyRefs[+|-]                        Display/hide assembly references.
 /il[+|-]                                  Display/hide IL of method bodies.
 /md[+|-]                                  Display/hide metadata tables.
-/embeddedpdb[+|-]                         Display embedded PDB insted of the type system metadata.
+/embeddedSource[+|-]                      Display/hide embedded source.
+/embeddedPdb[+|-]                         Display embedded PDB insted of the type system metadata.
 /findRef:<MemberRefs>                     Displays all assemblies containing the specified MemberRefs: 
                                           a semicolon separated list of 
                                           <assembly display name>:<qualified-type-name>:<member-name>
@@ -77,10 +79,12 @@ If /g is specified the path must be baseline PE file (generation 0).
 
         result.DisplayIL = ParseFlagArg(args, "il", defaultValue: !result.Recursive && !findRefs);
         result.DisplayMetadata = ParseFlagArg(args, "md", defaultValue: !result.Recursive && !findRefs);
-        result.DisplayEmbeddedPdb = ParseFlagArg(args, "embeddedpdb", defaultValue: false);
+        result.DisplayEmbeddedPdb = ParseFlagArg(args, "embeddedPdb", defaultValue: false);
         result.DisplayStatistics = ParseFlagArg(args, "stats", defaultValue: result.Recursive && !findRefs);
         result.DisplayAssemblyReferences = ParseFlagArg(args, "stats", defaultValue: !findRefs);
+        result.DisplayEmbeddedSource = ParseFlagArg(args, "embeddedSource", defaultValue: false);
         result.OutputPath = ParseValueArg(args, "out");
+       
 
         if (result.DisplayEmbeddedPdb && result.EncDeltas.Count > 0)
         {
@@ -103,8 +107,9 @@ If /g is specified the path must be baseline PE file (generation 0).
         string offStr = "/" + name + "-";
 
         return args.Aggregate(defaultValue, (value, arg) =>
-            arg.Equals(onStr1, StringComparison.OrdinalIgnoreCase) || arg.Equals(onStr2, StringComparison.OrdinalIgnoreCase) ? true :
+            (arg.Equals(onStr1, StringComparison.OrdinalIgnoreCase) || arg.Equals(onStr2, StringComparison.OrdinalIgnoreCase)) ? true :
             arg.Equals(offStr, StringComparison.OrdinalIgnoreCase) ? false :
             value);
     }
 }
+
