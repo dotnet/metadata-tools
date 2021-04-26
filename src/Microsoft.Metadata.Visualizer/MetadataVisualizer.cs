@@ -6,6 +6,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -21,7 +22,8 @@ namespace Microsoft.Metadata.Tools
     {
         None = 0,
         ShortenBlobs = 1,
-        NoHeapReferences = 1 << 1
+        NoHeapReferences = 1 << 1,
+        EmbeddedSource = 1 << 2
     }
 
     public sealed partial class MetadataVisualizer
@@ -2112,11 +2114,16 @@ namespace Microsoft.Metadata.Tools
                 return VisualizeCompilationOptions(blobReader);
             }
 
+            if (kind == PortableCustomDebugInfoKinds.EmbeddedSource && _options.HasFlag(MetadataVisualizerOptions.EmbeddedSource))
+            {
+                return VisualizeEmbeddedSource(blobReader);
+            }
+
             return null;
         }
 
         private static string VisualizeSourceLink(BlobReader reader)
-            => reader.ReadUTF8(reader.RemainingBytes);
+            => reader.ReadUTF8(reader.RemainingBytes) + Environment.NewLine;
 
         private static string TryReadUtf8NullTerminated(ref BlobReader reader)
         {
@@ -2213,6 +2220,43 @@ namespace Microsoft.Metadata.Tools
             }
 
             builder.AppendLine("}");
+            return builder.ToString();
+        }
+
+        private static string VisualizeEmbeddedSource(BlobReader reader)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine(">>>");
+            int format = -1;
+            try { format = reader.ReadInt32(); } catch { };
+            byte[] bytes = null;
+            try { bytes = reader.ReadBytes(reader.RemainingBytes); } catch { };
+
+            if (format > 0 && bytes != null)
+            {
+                try
+                {
+                    using var compressedStream = new MemoryStream(bytes, writable: false);
+                    using var uncompressedStream = new MemoryStream();
+                    using var deflate = new DeflateStream(compressedStream, CompressionMode.Decompress);
+                    deflate.CopyTo(uncompressedStream);
+                    bytes = uncompressedStream.ToArray();
+                }
+                catch
+                {
+                    bytes = null;
+                };
+            }
+
+            if (format < 0 || bytes == null)
+            {
+                builder.AppendLine(BadMetadataStr);
+            }
+            else
+            {
+                builder.AppendLine(Encoding.UTF8.GetString(bytes));
+                builder.AppendLine("<<< End of Embedded Source");
+            }
             return builder.ToString();
         }
 

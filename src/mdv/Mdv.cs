@@ -40,7 +40,7 @@ namespace Microsoft.Metadata.Tools
         public Mdv(Arguments arguments)
         {
             _arguments = arguments;
-            _writer = (arguments.OutputPath != null) ? new StreamWriter(File.OpenWrite(arguments.OutputPath), Encoding.UTF8) : Console.Out;
+            _writer = (arguments.OutputPath != null) ? new StreamWriter(File.Create(arguments.OutputPath), Encoding.UTF8) : Console.Out;
         }
 
         public void Dispose()
@@ -231,7 +231,12 @@ namespace Microsoft.Metadata.Tools
         private void VisualizeGenerations(List<GenerationData> generations)
         {
             var mdReaders = generations.Select(g => g.MetadataReader).ToArray();
-            var visualizer = new MetadataVisualizer(mdReaders, _writer);
+
+            var options = _arguments.DisplayEmbeddedSource ?
+                MetadataVisualizerOptions.EmbeddedSource :
+                MetadataVisualizerOptions.None;
+
+            var visualizer = new MetadataVisualizer(mdReaders, _writer, options);
 
             for (int generationIndex = 0; generationIndex < generations.Count; generationIndex++)
             {
