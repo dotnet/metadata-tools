@@ -1595,38 +1595,70 @@ namespace Microsoft.Metadata.Tools
 
         private void WriteBlobs()
         {
-            int size = _reader.GetHeapSize(HeapIndex.Blob);
-            if (size == 0)
+            int heapSize = _reader.GetHeapSize(HeapIndex.Blob);
+            if (heapSize == 0)
             {
                 return;
             }
 
+            var heapOffset = _reader.GetHeapMetadataOffset(HeapIndex.Blob);
+
             int[] sizePerKind = new int[(int)BlobKind.Count];
 
-            _writer.WriteLine($"#Blob (size = {size}):");
+            _writer.WriteLine($"#Blob (size = {heapSize}):");
             var handle = MetadataTokens.BlobHandle(0);
             do
             {
-                byte[] value = _reader.GetBlobBytes(handle);
+                byte[] value;
+                int offset = _reader.GetHeapOffset(handle);
 
-                BlobKind kind;
-                string kindString;
-                if (_blobKinds.TryGetValue(handle, out kind))
+                string kindString = "";
+                string valueString = "";
+
+                try
+                {
+                    value = _reader.GetBlobBytes(handle);
+                }
+                catch
+                {
+                    unsafe
+                    {
+                        var blobHeapReader = new BlobReader(_reader.MetadataPointer + heapOffset + offset, heapSize - offset);
+
+                        int blobSize;
+                        try
+                        {
+                            blobSize = blobHeapReader.ReadCompressedInteger();
+                        }
+                        catch
+                        {
+                            blobSize = -1;
+                        }
+
+                        value = blobHeapReader.ReadBytes(blobHeapReader.RemainingBytes);
+                        valueString = $"{BadMetadataStr} size: {((blobSize == -1) ? "?" : blobSize.ToString())}, remaining bytes: ";
+                    }
+                }
+
+                if (_blobKinds.TryGetValue(handle, out var kind))
                 {
                     kindString = " (" + kind + ")";
 
                     // ignoring the compressed blob size:
                     sizePerKind[(int)kind] += value.Length;
                 }
+
+                if (value.Length > 0)
+                {
+                    int displayLength = (_options & MetadataVisualizerOptions.ShortenBlobs) != 0 ? Math.Min(4, value.Length) : value.Length;
+                    valueString += BitConverter.ToString(value, 0, displayLength) + (displayLength < value.Length ? "-..." : null);
+                }
                 else
                 {
-                    kindString = "";
+                    valueString += "<empty>";
                 }
 
-                int displayLength = (_options & MetadataVisualizerOptions.ShortenBlobs) != 0 ? Math.Min(4, value.Length) : value.Length;
-                string valueString = BitConverter.ToString(value, 0, displayLength) + (displayLength < value.Length ? "-..." : null);
-
-                _writer.WriteLine($"  {_reader.GetHeapOffset(handle):x}{kindString}: {valueString}");
+                _writer.WriteLine($"  {offset:x}{kindString}: {valueString}");
                 handle = _reader.GetNextHandle(handle);
             }
             while (!handle.IsNil);
