@@ -1602,6 +1602,7 @@ namespace Microsoft.Metadata.Tools
             }
 
             var heapOffset = _reader.GetHeapMetadataOffset(HeapIndex.Blob);
+            bool hasBadMetadata = false;
 
             int[] sizePerKind = new int[(int)BlobKind.Count];
 
@@ -1621,6 +1622,8 @@ namespace Microsoft.Metadata.Tools
                 }
                 catch
                 {
+                    hasBadMetadata = true;
+
                     unsafe
                     {
                         var blobHeapReader = new BlobReader(_reader.MetadataPointer + heapOffset + offset, heapSize - offset);
@@ -1659,6 +1662,12 @@ namespace Microsoft.Metadata.Tools
                 }
 
                 _writer.WriteLine($"  {offset:x}{kindString}: {valueString}");
+
+                if (hasBadMetadata)
+                {
+                    break;
+                }
+
                 handle = _reader.GetNextHandle(handle);
             }
             while (!handle.IsNil);
