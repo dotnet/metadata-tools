@@ -61,6 +61,8 @@ namespace Microsoft.Metadata.Tools
             Count
         }
 
+        private delegate TResult FuncRef<TArg, TResult>(ref TArg arg); 
+
         private sealed class TableBuilder
         {
             private readonly string _title;
@@ -641,6 +643,27 @@ namespace Microsoft.Metadata.Tools
             }
         }
 
+        private static string TryRead<T>(ref BlobReader reader, ref bool error, FuncRef<BlobReader, T> read, Func<T, string> toString = null)
+        {
+            if (error)
+            {
+                return BadMetadataStr;
+            }
+
+            T value;
+            try
+            {
+                value = read(ref reader);
+            }
+            catch (BadImageFormatException)
+            {
+                error = true;
+                return BadMetadataStr;
+            }
+
+            return (toString != null) ? toString(value) : value.ToString();
+        }
+
         private string ToString<TValue>(Func<TValue> getValue)
         {
             try
@@ -682,6 +705,9 @@ namespace Microsoft.Metadata.Tools
 
         private string Int32Hex(Func<int> getValue, int digits = 8)
             => ToString(getValue, value => "0x" + value.ToString("X" + digits));
+
+        private static string ToHex(uint value)
+            => "0x" + value.ToString("X8");
 
         public string Token(Func<Handle> getHandle, bool displayTable = true)
             => ToString(getHandle, displayTable, Token);
@@ -2035,6 +2061,20 @@ namespace Microsoft.Metadata.Tools
                 typeHandle.IsNil ? typeCode.ToString() : Token(() => typeHandle));
         }
 
+        public static string FormatBytes(byte[] blob, int sizeLimit = 32)
+        {
+            int length = blob.Length;
+            string suffix = "";
+
+            if (blob.Length > sizeLimit)
+            {
+                length = sizeLimit;
+                suffix = "-...";
+            }
+
+            return BitConverter.ToString(blob, 0, length) + suffix;
+        }
+
         private static bool IsPrimitiveType(SignatureTypeCode typeCode)
         {
             switch (typeCode)
@@ -2102,20 +2142,7 @@ namespace Microsoft.Metadata.Tools
                     {
                         Token(() => entry.Parent),
                         CustomDebugInformationKind(() => entry.Kind),
-                        Literal(() => entry.Value, BlobKind.CustomDebugInformation, (r, h) =>
-                        {
-                            var blob = r.GetBlobBytes(h);
-                            int length = blob.Length;
-                            string suffix = "";
-
-                            if (blob.Length > BlobSizeLimit)
-                            {
-                                length = BlobSizeLimit;
-                                suffix = "-...";
-                            }
-
-                            return BitConverter.ToString(blob, 0, length) + suffix;
-                        })
+                        Literal(() => entry.Value, BlobKind.CustomDebugInformation, (r, h) => FormatBytes(r.GetBlobBytes(h), BlobSizeLimit))
                     },
                     details: TryDecodeCustomDebugInformation(entry)
                 );
@@ -2140,6 +2167,11 @@ namespace Microsoft.Metadata.Tools
                 return null;
             }
 
+            if (kind == PortableCustomDebugInfoKinds.AsyncMethodSteppingInformationBlob)
+            {
+                return TryDecodeAsyncMethodSteppingInformation(blobReader);
+            }
+
             if (kind == PortableCustomDebugInfoKinds.SourceLink)
             {
                 return VisualizeSourceLink(blobReader);
@@ -2161,6 +2193,42 @@ namespace Microsoft.Metadata.Tools
             }
 
             return null;
+        }
+
+        private static string TryDecodeAsyncMethodSteppingInformation(BlobReader reader)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("{");
+
+            bool error = false;
+            var catchHandlerOffsetStr = TryRead(ref reader, ref error, (ref BlobReader reader) => reader.ReadUInt32(), value => (value == 0) ? null : $"0x{value - 1:X4}");
+                
+            if (catchHandlerOffsetStr != null)
+            {
+                builder.AppendLine($"  CatchHandlerOffset: {catchHandlerOffsetStr}");
+            }
+
+            if (error) goto onError;
+
+            while (reader.RemainingBytes > 0)
+            {
+                var yieldOffsetStr = TryRead(ref reader, ref error, (ref BlobReader reader) => reader.ReadUInt32(), value => $"0x{value:X4}");
+                var resumeOffsetStr = TryRead(ref reader, ref error, (ref BlobReader reader) => reader.ReadUInt32(), value => $"0x{value:X4}");
+                var moveNextMethodRowIdStr = TryRead(ref reader, ref error, (ref BlobReader reader) => reader.ReadCompressedInteger(), value => $"0x06{value:X6}");
+
+                builder.AppendLine($"  Yield: {yieldOffsetStr}, Resume: {resumeOffsetStr}, MoveNext: {moveNextMethodRowIdStr}");
+                if (error) goto onError;
+            }
+
+            onError:
+
+            if (error)
+            {
+                builder.AppendLine("  Remaining bytes: " + FormatBytes(reader.ReadBytes(reader.RemainingBytes)));
+            }
+
+            builder.AppendLine("}");
+            return builder.ToString();
         }
 
         private static string VisualizeSourceLink(BlobReader reader)
