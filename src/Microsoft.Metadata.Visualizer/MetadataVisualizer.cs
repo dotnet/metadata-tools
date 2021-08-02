@@ -779,6 +779,23 @@ namespace Microsoft.Metadata.Tools
             return (handles.Count == 0) ? "nil" : Token(() => genericHandles.First(), displayTable: false) + "-" + Token(() => genericHandles.Last(), displayTable: false);
         }
 
+        // Fields and methods, and parameters in EnC deltas are not listed in TypeDef and MethodDef table, respectively.
+        // Instead the EncLog table associates them with their containing TypeDefs/MethodDefs.
+        private string MemberTokenRange<THandle>(IReadOnlyCollection<THandle> handles, Func<THandle, EntityHandle> conversion, int generation)
+        {
+            if (generation == 0)
+            {
+                return TokenRange(handles, conversion);
+            }
+
+            if (handles.Count == 0)
+            {
+                return "n/a (EnC)";
+            }
+
+            return TokenRange(handles, conversion) + " " + BadMetadataStr;
+        }
+
         public string TokenList(IReadOnlyCollection<EntityHandle> handles, bool displayTable = false)
         {
             if (handles.Count == 0)
@@ -1005,8 +1022,8 @@ namespace Microsoft.Metadata.Tools
                     Token(() => aggregateEntry.GetDeclaringType()),
                     Token(() => entry.BaseType),
                     TokenList(implementedInterfaces),
-                    TokenRange(entry.GetFields(), h => h),
-                    TokenRange(entry.GetMethods(), h => h),
+                    MemberTokenRange(entry.GetFields(), h => h, generation),
+                    MemberTokenRange(entry.GetMethods(), h => h, generation),
                     EnumValue<int>(() => entry.Attributes),
                     !layout.IsDefault ? layout.Size.ToString() : "n/a",
                     !layout.IsDefault ? layout.PackingSize.ToString() : "n/a"
@@ -1083,7 +1100,7 @@ namespace Microsoft.Metadata.Tools
                     Literal(() => entry.Name),
                     MethodSignature(() => entry.Signature),
                     Int32Hex(() => entry.RelativeVirtualAddress),
-                    TokenRange(entry.GetParameters(), h => h),
+                    MemberTokenRange(entry.GetParameters(), h => h, generation),
                     TokenRange(aggregateEntry.GetGenericParameters(), h => h),
                     EnumValue<int>(() => entry.Attributes),    // TODO: we need better visualizer than the default enum
                     EnumValue<int>(() => entry.ImplAttributes),
