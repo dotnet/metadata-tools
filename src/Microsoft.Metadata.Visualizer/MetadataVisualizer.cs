@@ -235,10 +235,10 @@ namespace Microsoft.Metadata.Tools
 
             WriteModule();
             WriteTypeRef();
-            WriteTypeDef();
-            WriteField();
-            WriteMethod();
-            WriteParam();
+            WriteTypeDef(generation);
+            WriteField(generation);
+            WriteMethod(generation);
+            WriteParam(generation);
             WriteMemberRef();
             WriteConstant();
             WriteCustomAttribute();
@@ -256,7 +256,7 @@ namespace Microsoft.Metadata.Tools
             WriteFile();
             WriteExportedType();
             WriteManifestResource();
-            WriteGenericParam();
+            WriteGenericParam(generation);
             WriteMethodSpec();
             WriteGenericParamConstraint();
 
@@ -599,7 +599,7 @@ namespace Microsoft.Metadata.Tools
                 }
                 else
                 {
-                    return $"{value} (#{offset:x}/{generationOffset:x})";
+                    return $"{value} (#{offset:x}/{generation}:{generationOffset:x})";
                 }
             }
 
@@ -706,15 +706,21 @@ namespace Microsoft.Metadata.Tools
         private string Int32Hex(Func<int> getValue, int digits = 8)
             => ToString(getValue, value => "0x" + value.ToString("X" + digits));
 
-        private static string ToHex(uint value)
-            => "0x" + value.ToString("X8");
-
         public string Token(Func<Handle> getHandle, bool displayTable = true)
             => ToString(getHandle, displayTable, Token);
 
         private string Token(Handle handle, bool displayTable = true)
         {
             string tokenStr = handle.IsNil ? "nil" : $"0x{_reader.GetToken(handle):x8}";
+
+            if (_aggregator != null)
+            {
+                var generationHandle = (EntityHandle)_aggregator.GetGenerationHandle(handle, out int generation);
+                if (generationHandle != handle)
+                {
+                    tokenStr += $"/{generation}:{MetadataTokens.GetRowNumber(generationHandle):x}";
+                }
+            }
 
             if (displayTable && MetadataTokens.TryGetTableIndex(handle.Kind, out var table))
             {
@@ -964,7 +970,7 @@ namespace Microsoft.Metadata.Tools
             WriteTable(table);
         }
 
-        private void WriteTypeDef()
+        private void WriteTypeDef(int generation)
         {
             var table = new TableBuilder(
                 "TypeDef (0x02):",
@@ -984,15 +990,19 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetTypeDefinition(handle);
 
+                // EnclosingType and implemented Interfaces are stored in separate tables that reference this TypeDef via an aggregate handle.
+                // Therefore we need to use aggregate TypeDefinition to look them up.
+                var aggregateEntry = (generation > 0) ? _reader.GetTypeDefinition((TypeDefinitionHandle)GetAggregateHandle(handle, generation)) : entry;
+
                 var layout = entry.GetLayout();
 
                 // TODO: Visualize InterfaceImplementations
-                var implementedInterfaces = entry.GetInterfaceImplementations().Select(h => _reader.GetInterfaceImplementation(h).Interface).ToArray();
+                var implementedInterfaces = aggregateEntry.GetInterfaceImplementations().Select(h => _reader.GetInterfaceImplementation(h).Interface).ToArray();
 
                 table.AddRow(
                     Literal(() => entry.Name),
                     Literal(() => entry.Namespace),
-                    Token(() => entry.GetDeclaringType()),
+                    Token(() => aggregateEntry.GetDeclaringType()),
                     Token(() => entry.BaseType),
                     TokenList(implementedInterfaces),
                     TokenRange(entry.GetFields(), h => h),
@@ -1006,7 +1016,7 @@ namespace Microsoft.Metadata.Tools
             WriteTable(table);
         }
 
-        private void WriteField()
+        private void WriteField(int generation)
         {
             var table = new TableBuilder(
                 "Field (0x04):",
@@ -1022,24 +1032,28 @@ namespace Microsoft.Metadata.Tools
             {
                 var entry = _reader.GetFieldDefinition(handle);
 
+                // Marshalling descriptor, field layout offset and field RVA are stored in separate tables that reference this FieldDef via an aggregate handle.
+                // Therefore we need to use aggregate FieldDefinition to look them up.
+                var aggregateEntry = (generation > 0) ? _reader.GetFieldDefinition((FieldDefinitionHandle)GetAggregateHandle(handle, generation)) : entry;
+
                 table.AddRow(
                     Literal(() => entry.Name),
                     FieldSignature(() => entry.Signature),
                     EnumValue<int>(() => entry.Attributes),
-                    Literal(() => entry.GetMarshallingDescriptor(), BlobKind.Marshalling),
+                    Literal(() => aggregateEntry.GetMarshallingDescriptor(), BlobKind.Marshalling),
                     ToString(() =>
                     {
-                        int offset = entry.GetOffset();
+                        int offset = aggregateEntry.GetOffset();
                         return offset >= 0 ? offset.ToString() : "n/a";
                     }),
-                    ToString(() => entry.GetRelativeVirtualAddress())
+                    ToString(() => aggregateEntry.GetRelativeVirtualAddress())
                 );
             }
 
             WriteTable(table);
         }
 
-        private void WriteMethod()
+        private void WriteMethod(int generation)
         {
             var table = new TableBuilder(
                 "Method (0x06, 0x1C):",
@@ -1058,14 +1072,19 @@ namespace Microsoft.Metadata.Tools
             foreach (var handle in _reader.MethodDefinitions)
             {
                 var entry = _reader.GetMethodDefinition(handle);
-                var import = entry.GetImport();
+
+                // GenericParameters and Import* are stored in separate tables that reference this MethodDef via an aggregate handle.
+                // Therefore we need to use aggregate MethodDefinition to look them up.
+                var aggregateEntry = (generation > 0) ? _reader.GetMethodDefinition((MethodDefinitionHandle)GetAggregateHandle(handle, generation)) : entry;
+
+                var import = aggregateEntry.GetImport();
 
                 table.AddRow(
                     Literal(() => entry.Name),
                     MethodSignature(() => entry.Signature),
                     Int32Hex(() => entry.RelativeVirtualAddress),
                     TokenRange(entry.GetParameters(), h => h),
-                    TokenRange(entry.GetGenericParameters(), h => h),
+                    TokenRange(aggregateEntry.GetGenericParameters(), h => h),
                     EnumValue<int>(() => entry.Attributes),    // TODO: we need better visualizer than the default enum
                     EnumValue<int>(() => entry.ImplAttributes),
                     EnumValue<short>(() => import.Attributes),
@@ -1077,7 +1096,7 @@ namespace Microsoft.Metadata.Tools
             WriteTable(table);
         }
 
-        private void WriteParam()
+        private void WriteParam(int generation)
         {
             var table = new TableBuilder(
                 "Param (0x08):",
@@ -1089,13 +1108,18 @@ namespace Microsoft.Metadata.Tools
 
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.Param); i <= count; i++)
             {
-                var entry = _reader.GetParameter(MetadataTokens.ParameterHandle(i));
+                var handle = MetadataTokens.ParameterHandle(i);
+                var entry = _reader.GetParameter(handle);
+
+                // Marshalling descriptor is stored in separate table that reference this Param via an aggregate handle.
+                // Therefore we need to use aggregate Parameter to look them up.
+                var aggregateEntry = (generation > 0) ? _reader.GetParameter((ParameterHandle)GetAggregateHandle(handle, generation)) : entry;
 
                 table.AddRow(
                     Literal(() => entry.Name),
                     ToString(() => entry.SequenceNumber),
                     EnumValue<int>(() => entry.Attributes),
-                    Literal(() => entry.GetMarshallingDescriptor(), BlobKind.Marshalling)
+                    Literal(() => aggregateEntry.GetMarshallingDescriptor(), BlobKind.Marshalling)
                 );
             }
 
@@ -1507,7 +1531,7 @@ namespace Microsoft.Metadata.Tools
             WriteTable(table);
         }
 
-        private void WriteGenericParam()
+        private void WriteGenericParam(int generation)
         {
             var table = new TableBuilder(
                 "GenericParam (0x2a):",
@@ -1520,14 +1544,19 @@ namespace Microsoft.Metadata.Tools
 
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.GenericParam); i <= count; i++)
             {
-                var entry = _reader.GetGenericParameter(MetadataTokens.GenericParameterHandle(i));
+                var handle = MetadataTokens.GenericParameterHandle(i);
+                var entry = _reader.GetGenericParameter(handle);
+
+                // Type constraints are stored in separate table that reference this GenericParam via an aggregate handle.
+                // Therefore we need to use aggregate GenericParameter to look them up.
+                var aggregateEntry = (generation > 0) ? _reader.GetGenericParameter((GenericParameterHandle)GetAggregateHandle(handle, generation)) : entry;
 
                 table.AddRow(
                     Literal(() => entry.Name),
                     ToString(() => entry.Index),
                     EnumValue<int>(() => entry.Attributes),
                     Token(() => entry.Parent),
-                    TokenRange(entry.GetConstraints(), h => h)
+                    TokenRange(aggregateEntry.GetConstraints(), h => h)
                 );
             }
 
