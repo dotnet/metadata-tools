@@ -5,6 +5,6 @@
 
   <PropertyGroup>
     <LangVersion>Preview</LangVersion>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 </Project>
