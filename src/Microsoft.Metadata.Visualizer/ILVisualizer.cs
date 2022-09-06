@@ -12,6 +12,7 @@ using System.Reflection.Emit;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.Serialization;
 
 namespace Microsoft.Metadata.Tools
 {
@@ -128,9 +129,15 @@ namespace Microsoft.Metadata.Tools
 
         public const string IndentString = "  ";
 
-        public virtual string VisualizeUserString(uint token) => string.Format(CultureInfo.InvariantCulture, "0x{0:X8}", token);
-        public virtual string VisualizeSymbol(uint token, OperandType operandType) => string.Format(CultureInfo.InvariantCulture, "0x{0:X8}", token);
-        public virtual string VisualizeLocalType(object type) => string.Format(CultureInfo.InvariantCulture, "0x{0:X8}", type);
+        public virtual string VisualizeUserString(uint token)
+            => string.Format(CultureInfo.InvariantCulture, "0x{0:X8}", token);
+
+        public virtual string VisualizeSymbol(uint token, OperandType operandType)
+            => string.Format(CultureInfo.InvariantCulture, "0x{0:X8}", token);
+
+        public virtual string VisualizeLocalType(object type)
+            => string.Format(CultureInfo.InvariantCulture, "0x{0:X8}", type);
+
         public virtual string VisualizeSingle(float single)
             => (single == 0 && 1 / single < 0)
                 ? "-0.0"

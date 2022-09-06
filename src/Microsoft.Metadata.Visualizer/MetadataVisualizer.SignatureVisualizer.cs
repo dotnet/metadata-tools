@@ -22,44 +22,40 @@ namespace Microsoft.Metadata.Tools
             }
 
             public string GetPrimitiveType(PrimitiveTypeCode typeCode)
-            {
-                switch (typeCode)
+                => typeCode switch
                 {
-                    case PrimitiveTypeCode.Boolean: return "bool";
-                    case PrimitiveTypeCode.Byte: return "uint8";
-                    case PrimitiveTypeCode.Char: return "char";
-                    case PrimitiveTypeCode.Double: return "float64";
-                    case PrimitiveTypeCode.Int16: return "int16";
-                    case PrimitiveTypeCode.Int32: return "int32";
-                    case PrimitiveTypeCode.Int64: return "int64";
-                    case PrimitiveTypeCode.IntPtr: return "native int";
-                    case PrimitiveTypeCode.Object: return "object";
-                    case PrimitiveTypeCode.SByte: return "int8";
-                    case PrimitiveTypeCode.Single: return "float32";
-                    case PrimitiveTypeCode.String: return "string";
-                    case PrimitiveTypeCode.TypedReference: return "typedref";
-                    case PrimitiveTypeCode.UInt16: return "uint16";
-                    case PrimitiveTypeCode.UInt32: return "uint32";
-                    case PrimitiveTypeCode.UInt64: return "uint64";
-                    case PrimitiveTypeCode.UIntPtr: return "native uint";
-                    case PrimitiveTypeCode.Void: return "void";
-                    default: return "<bad metadata>";
-                }
-            }
+                    PrimitiveTypeCode.Boolean => "bool",
+                    PrimitiveTypeCode.Byte => "uint8",
+                    PrimitiveTypeCode.Char => "char",
+                    PrimitiveTypeCode.Double => "float64",
+                    PrimitiveTypeCode.Int16 => "int16",
+                    PrimitiveTypeCode.Int32 => "int32",
+                    PrimitiveTypeCode.Int64 => "int64",
+                    PrimitiveTypeCode.IntPtr => "native int",
+                    PrimitiveTypeCode.Object => "object",
+                    PrimitiveTypeCode.SByte => "int8",
+                    PrimitiveTypeCode.Single => "float32",
+                    PrimitiveTypeCode.String => "string",
+                    PrimitiveTypeCode.TypedReference => "typedref",
+                    PrimitiveTypeCode.UInt16 => "uint16",
+                    PrimitiveTypeCode.UInt32 => "uint32",
+                    PrimitiveTypeCode.UInt64 => "uint64",
+                    PrimitiveTypeCode.UIntPtr => "native uint",
+                    PrimitiveTypeCode.Void => "void",
+                    _ => "<bad metadata>",
+                };
 
-            private string RowId(EntityHandle handle) => _visualizer.RowId(handle);
+            public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind = 0)
+                => _visualizer.QualifiedTypeDefinitionName(handle);
 
-            public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind = 0) =>
-                $"typedef{RowId(handle)}";
+            public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind = 0)
+                => _visualizer.QualifiedTypeReferenceName(handle);
 
-            public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind = 0) =>
-                $"typeref{RowId(handle)}";
+            public string GetTypeFromSpecification(MetadataReader reader, object genericContext, TypeSpecificationHandle handle, byte rawTypeKind = 0)
+                => _visualizer.QualifiedTypeSpecificationName(handle);
 
-            public string GetTypeFromSpecification(MetadataReader reader, object genericContext, TypeSpecificationHandle handle, byte rawTypeKind = 0) =>
-                $"typespec{RowId(handle)}";
-
-            public string GetSZArrayType(string elementType) =>
-                elementType + "[]";
+            public string GetSZArrayType(string elementType)
+                => elementType + "[]";
 
             public string GetPointerType(string elementType)
                 => elementType + "*";
@@ -79,8 +75,8 @@ namespace Microsoft.Metadata.Tools
             public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
                 => genericType + "<" + string.Join(",", typeArguments) + ">";
 
-            public string GetModifiedType(string modifierType, string unmodifiedType, bool isRequired) =>
-                unmodifiedType + (isRequired ? " modreq(" : " modopt(") + modifierType + ")";
+            public string GetModifiedType(string modifierType, string unmodifiedType, bool isRequired)
+                => unmodifiedType + (isRequired ? " modreq(" : " modopt(") + modifierType + ")";
 
             public string GetArrayType(string elementType, ArrayShape shape)
             {
