@@ -5,11 +5,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Data;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -185,9 +187,10 @@ namespace Microsoft.Metadata.Tools
 
         // enc map for each delta reader
         private readonly ImmutableArray<ImmutableArray<EntityHandle>> _encMaps;
+        private readonly ImmutableDictionary<EntityHandle, EntityHandle> _encAddedMemberToParentMap;
 
         private MetadataReader _reader;
-        private readonly Dictionary<BlobHandle, BlobKind> _blobKinds = new Dictionary<BlobHandle, BlobKind>();
+        private readonly Dictionary<BlobHandle, BlobKind> _blobKinds = new();
 
         private MetadataVisualizer(TextWriter writer, IReadOnlyList<MetadataReader> readers, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
         {
@@ -202,6 +205,12 @@ namespace Microsoft.Metadata.Tools
                 _aggregator = new MetadataAggregator(readers[0], deltaReaders);
 
                 _encMaps = ImmutableArray.CreateRange(deltaReaders.Select(reader => ImmutableArray.CreateRange(reader.GetEditAndContinueMapEntries())));
+                _encAddedMemberToParentMap = CalculateEncAddedMemberToParentMap();
+            }
+            else
+            {
+                _encMaps = ImmutableArray<ImmutableArray<EntityHandle>>.Empty;
+                _encAddedMemberToParentMap = ImmutableDictionary<EntityHandle, EntityHandle>.Empty;
             }
         }
 
@@ -214,6 +223,42 @@ namespace Microsoft.Metadata.Tools
         public MetadataVisualizer(IReadOnlyList<MetadataReader> readers, TextWriter writer, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
             : this(writer, readers, options)
         {
+        }
+
+        private ImmutableDictionary<EntityHandle, EntityHandle> CalculateEncAddedMemberToParentMap()
+        {
+            var builder = ImmutableDictionary.CreateBuilder<EntityHandle, EntityHandle>();
+
+            foreach (var reader in _readers)
+            {
+                var currentParent = default(EntityHandle);
+
+                foreach (var entry in reader.GetEditAndContinueLogEntries())
+                {
+                    switch (entry.Operation)
+                    {
+                        case EditAndContinueOperation.AddMethod:
+                        case EditAndContinueOperation.AddProperty:
+                        case EditAndContinueOperation.AddEvent:
+                        case EditAndContinueOperation.AddField:
+                        case EditAndContinueOperation.AddParameter:
+                            Debug.Assert(currentParent.IsNil);
+                            currentParent = entry.Handle;
+                            break;
+
+                        case EditAndContinueOperation.Default:
+                            if (!currentParent.IsNil)
+                            {
+                                builder.Add(entry.Handle, currentParent);
+                                currentParent = default;
+                            }
+
+                            break;
+                    }
+                }
+            }
+
+            return builder.ToImmutable();
         }
 
         private bool NoHeapReferences => (_options & MetadataVisualizerOptions.NoHeapReferences) != 0;
@@ -294,6 +339,11 @@ namespace Microsoft.Metadata.Tools
 
         private EntityHandle GetAggregateHandle(EntityHandle generationHandle, int generation)
         {
+            if (generation == 0)
+            {
+                return generationHandle;
+            }
+
             var encMap = _encMaps[generation - 1];
 
             if (!TryGetHandleRange(encMap, generationHandle.Kind, out int start, out _))
@@ -334,17 +384,36 @@ namespace Microsoft.Metadata.Tools
             return true;
         }
 
-        private MethodDefinition GetMethod(MethodDefinitionHandle handle)
-        {
-            return Get(handle, (reader, h) => reader.GetMethodDefinition((MethodDefinitionHandle)h));
-        }
+        private BlobReader GetGenerationBlobReader(BlobHandle handle)
+           => GetGenerationEntity(handle, (reader, handle) => reader.GetBlobReader((BlobHandle)handle));
 
-        private BlobHandle GetLocalSignature(StandaloneSignatureHandle handle)
-        {
-            return Get(handle, (reader, h) => reader.GetStandaloneSignature((StandaloneSignatureHandle)h).Signature);
-        }
+        private TypeDefinition GetGenerationTypeDefinition(TypeDefinitionHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetTypeDefinition((TypeDefinitionHandle)handle));
 
-        private TEntity Get<TEntity>(Handle handle, Func<MetadataReader, Handle, TEntity> getter)
+        private MethodDefinition GetGenerationMethodDefinition(MethodDefinitionHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetMethodDefinition((MethodDefinitionHandle)handle));
+
+        private MemberReference GetGenerationMemberReference(MemberReferenceHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetMemberReference((MemberReferenceHandle)handle));
+
+        private TypeReference GetGenerationTypeDefinition(TypeReferenceHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetTypeReference((TypeReferenceHandle)handle));
+
+        private MethodSpecification GetGenerationMethodSpecification(MethodSpecificationHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetMethodSpecification((MethodSpecificationHandle)handle));
+
+        private TypeSpecification GetGenerationTypeSpecification(TypeSpecificationHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetTypeSpecification((TypeSpecificationHandle)handle));
+
+        private StandaloneSignature GetGenerationLocalSignature(StandaloneSignatureHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetStandaloneSignature((StandaloneSignatureHandle)handle));
+
+        /// <summary>
+        /// Returns entity definition that can be used to read its metadata.
+        /// The entity is local to the generation that introduced it and can't be used to look up related entities such as declaring type, etc.
+        /// since the metadata tables contain aggregate metadata tokens and not generation-relative ones, which is stored in the returned entity.
+        /// </summary>
+        private TEntity GetGenerationEntity<TEntity>(Handle handle, Func<MetadataReader, Handle, TEntity> getter)
         {
             if (_aggregator != null)
             {
@@ -475,16 +544,12 @@ namespace Microsoft.Metadata.Tools
                     case BlobKind.MemberRefSignature:
                         var header = sigReader.ReadSignatureHeader();
                         sigReader.Offset = 0;
-                        switch (header.Kind)
+                        return header.Kind switch
                         {
-                            case SignatureKind.Field:
-                                return decoder.DecodeFieldSignature(ref sigReader);
-
-                            case SignatureKind.Method:
-                                return MethodSignature(decoder.DecodeMethodSignature(ref sigReader));
-                        }
-
-                        throw new BadImageFormatException();
+                            SignatureKind.Field => decoder.DecodeFieldSignature(ref sigReader),
+                            SignatureKind.Method => MethodSignature(decoder.DecodeMethodSignature(ref sigReader)),
+                            _ => throw new BadImageFormatException(),
+                        };
 
                     case BlobKind.MethodSpec:
                         return string.Join(", ", decoder.DecodeMethodSpecificationSignature(ref sigReader));
@@ -498,7 +563,14 @@ namespace Microsoft.Metadata.Tools
             }
             catch (BadImageFormatException)
             {
-                return $"<bad signature: {BitConverter.ToString(reader.GetBlobBytes(signatureHandle))}>";
+                try
+                {
+                    return $"<bad signature: {BitConverter.ToString(reader.GetBlobBytes(signatureHandle))}>";
+                }
+                catch (BadImageFormatException)
+                {
+                    return BadMetadataStr;
+                }
             }
         }
 
@@ -528,6 +600,184 @@ namespace Microsoft.Metadata.Tools
             return builder.ToString();
         }
 
+        private string QualifiedTypeDefinitionName(TypeDefinitionHandle handle)
+        {
+            var builder = new StringBuilder();
+            Recurse(handle, isLastPart: true);
+            return builder.ToString();
+
+            void Recurse(TypeDefinitionHandle typeDefinitionHandle, bool isLastPart)
+            {
+                try
+                {
+                    var generationDeclaringTypeDef = GetGenerationTypeDefinition(typeDefinitionHandle);
+                    var declaringTypeDefHandle = _reader.GetTypeDefinition(typeDefinitionHandle).GetDeclaringType();
+
+                    if (declaringTypeDefHandle.IsNil)
+                    {
+                        if (!generationDeclaringTypeDef.Namespace.IsNil)
+                        {
+                            builder.Append(GetString(generationDeclaringTypeDef.Namespace)).Append('.');
+                        }
+                    }
+                    else
+                    {
+                        Recurse(declaringTypeDefHandle, isLastPart: false);
+                    }
+
+                    var name = GetString(generationDeclaringTypeDef.Name);
+                    builder.Append(name);
+                }
+                catch (BadImageFormatException)
+                {
+                    builder.Append(BadMetadataStr);
+                }
+
+                if (!isLastPart)
+                {
+                    builder.Append('.');
+                }
+            }
+        }
+
+        private string QualifiedMethodName(MethodDefinitionHandle handle, TypeDefinitionHandle scope = default)
+            => QualifiedMemberName(
+                handle,
+                scope,
+                entity => entity.Name,
+                entity => entity.GetDeclaringType(),
+                (reader, handle) => reader.GetMethodDefinition((MethodDefinitionHandle)handle));
+
+        private string QualifiedFieldName(FieldDefinitionHandle handle, TypeDefinitionHandle scope = default)
+            => QualifiedMemberName(
+                handle,
+                scope,
+                entity => entity.Name,
+                entity => entity.GetDeclaringType(),
+                (reader, handle) => reader.GetFieldDefinition((FieldDefinitionHandle)handle));
+
+        private string QualifiedMemberName<TMemberEntity>(
+            EntityHandle memberHandle,
+            TypeDefinitionHandle scope,
+            Func<TMemberEntity, StringHandle> nameGetter,
+            Func<TMemberEntity, TypeDefinitionHandle> declaringTypeGetter,
+            Func<MetadataReader, Handle, TMemberEntity> entityGetter)
+        {
+            try
+            {
+                var member = GetGenerationEntity(memberHandle, entityGetter);
+                var declaringTypeDefHandle = _encAddedMemberToParentMap.TryGetValue(memberHandle, out var parentHandle) ? (TypeDefinitionHandle)parentHandle : declaringTypeGetter(member);
+
+                var typeQualification = declaringTypeDefHandle != scope && !declaringTypeDefHandle.IsNil ? QualifiedTypeDefinitionName(declaringTypeDefHandle) + "." : "";
+                var memberName = GetString(nameGetter(member));
+
+                return typeQualification + memberName;
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+        }
+
+        private string QualifiedMemberReferenceName(MemberReferenceHandle handle)
+        {
+            try
+            {
+                var memberReference = GetGenerationMemberReference(handle);
+                return QualifiedName(memberReference.Parent) + "." + GetString(memberReference.Name);
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+        }
+
+        private string QualifiedTypeReferenceName(TypeReferenceHandle handle)
+        {
+            try
+            {
+                var typeReference = GetGenerationTypeDefinition(handle);
+                return GetString(typeReference.Namespace) + "." + GetString(typeReference.Name);
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+        }
+
+        private string QualifiedMethodSpecificationName(MethodSpecificationHandle handle)
+        {
+            MethodSpecification methodSpecification;
+            try
+            {
+                methodSpecification = GetGenerationMethodSpecification(handle);
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+
+            string qualifiedName;
+            try
+            {
+                qualifiedName = QualifiedName(methodSpecification.Method);
+            }
+            catch (BadImageFormatException)
+            {
+                qualifiedName = BadMetadataStr;
+            }
+
+            string typeArguments;
+            try
+            {
+                typeArguments = GetGenerationEntity(methodSpecification.Signature, (reader, handle) => Signature(reader, (BlobHandle)handle, BlobKind.MethodSpec));
+            }
+            catch (BadImageFormatException)
+            {
+                typeArguments = BadMetadataStr;
+            }
+
+            return qualifiedName + "<" + typeArguments + ">";
+        }
+
+        private string QualifiedTypeSpecificationName(TypeSpecificationHandle handle)
+        {
+            TypeSpecification typeSpecification;
+            try
+            {
+                typeSpecification = GetGenerationTypeSpecification(handle);
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+
+            BlobHandle signature;
+            try
+            {
+                signature = typeSpecification.Signature;
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
+
+            return GetGenerationEntity(signature, (reader, handle) => Signature(reader, (BlobHandle)handle, BlobKind.TypeSpec));
+        }
+
+        private string QualifiedName(EntityHandle handle, TypeDefinitionHandle scope = default)
+            => handle.Kind switch
+            {
+                HandleKind.TypeDefinition => QualifiedTypeDefinitionName((TypeDefinitionHandle)handle),
+                HandleKind.MethodDefinition => QualifiedMethodName((MethodDefinitionHandle)handle, scope),
+                HandleKind.FieldDefinition => QualifiedFieldName((FieldDefinitionHandle)handle, scope),
+                HandleKind.MemberReference => QualifiedMemberReferenceName((MemberReferenceHandle)handle),
+                HandleKind.TypeReference => QualifiedTypeReferenceName((TypeReferenceHandle)handle),
+                HandleKind.MethodSpecification => QualifiedMethodSpecificationName((MethodSpecificationHandle)handle),
+                HandleKind.TypeSpecification => QualifiedTypeSpecificationName((TypeSpecificationHandle)handle),
+                _ => null
+            };
+
         private string Literal(Func<BlobHandle> getHandle, BlobKind kind) =>
             Literal(getHandle, kind, (r, h) => BitConverter.ToString(r.GetBlobBytes(h)));
 
@@ -554,8 +804,11 @@ namespace Microsoft.Metadata.Tools
         private string Literal(Func<StringHandle> getHandle) =>
             Literal(() => getHandle(), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((StringHandle)h)) + "'");
 
-        private string Literal(Func<NamespaceDefinitionHandle> getHandle) =>
-            Literal(() => getHandle(), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((NamespaceDefinitionHandle)h)) + "'");
+        private string GetString(StringHandle handle) =>
+            Literal(handle, (r, h) => r.GetString((StringHandle)h), noHeapReferences: true);
+
+        private string GetString(UserStringHandle handle) =>
+            Literal(handle, (r, h) => r.GetUserString((UserStringHandle)h), noHeapReferences: true);
 
         private string Literal(Func<GuidHandle> getHandle) =>
             Literal(() => getHandle(), (r, h) => "{" + r.GetGuid((GuidHandle)h) + "}");
@@ -576,6 +829,9 @@ namespace Microsoft.Metadata.Tools
         }
 
         private string Literal(Handle handle, Func<MetadataReader, Handle, string> getValue)
+            => Literal(handle, getValue, NoHeapReferences);
+        
+        private string Literal(Handle handle, Func<MetadataReader, Handle, string> getValue, bool noHeapReferences)
         {
             if (handle.IsNil)
             {
@@ -591,7 +847,7 @@ namespace Microsoft.Metadata.Tools
                 int offset = generationReader.GetHeapOffset(handle);
                 int generationOffset = generationReader.GetHeapOffset(generationHandle);
 
-                if (NoHeapReferences)
+                if (noHeapReferences)
                 {
                     return value;
                 }
@@ -614,9 +870,9 @@ namespace Microsoft.Metadata.Tools
             int heapOffset = MetadataTokens.GetHeapOffset(handle);
 
             // virtual heap handles don't have offset:
-            bool displayHeapOffset = !NoHeapReferences && heapOffset >= 0;
+            bool displayHeapOffset = !noHeapReferences && heapOffset >= 0;
 
-            return $"{GetValueChecked(getValue, _reader, handle):x}" + (displayHeapOffset ? $" (#{heapOffset:x})" : "");
+            return GetValueChecked(getValue, _reader, handle) + (displayHeapOffset ? $" (#{heapOffset:x})" : "");
         }
 
         private static string GetValueChecked(Func<MetadataReader, Handle, string> getValue, MetadataReader reader, Handle handle)
@@ -2420,13 +2676,12 @@ namespace Microsoft.Metadata.Tools
         public void VisualizeMethodBody(MethodBodyBlock body, MethodDefinitionHandle generationHandle, int generation)
         {
             var handle = (MethodDefinitionHandle)GetAggregateHandle(generationHandle, generation);
-            var method = GetMethod(handle);
-            VisualizeMethodBody(body, method, handle);
+            VisualizeMethodBody(body, handle);
         }
 
         public void VisualizeMethodBody(MethodDefinitionHandle methodHandle, Func<int, MethodBodyBlock> bodyProvider)
         {
-            var method = GetMethod(methodHandle);
+            var method = GetGenerationMethodDefinition(methodHandle);
 
             if ((method.ImplAttributes & MethodImplAttributes.CodeTypeMask) != MethodImplAttributes.Managed)
             {
@@ -2441,24 +2696,26 @@ namespace Microsoft.Metadata.Tools
             }
 
             var body = bodyProvider(rva);
-            VisualizeMethodBody(body, method, methodHandle);
+            VisualizeMethodBody(body, methodHandle);
         }
 
-        private void VisualizeMethodBody(MethodBodyBlock body, MethodDefinition method, MethodDefinitionHandle methodHandle)
+        private void VisualizeMethodBody(MethodBodyBlock body, MethodDefinitionHandle methodHandle)
         {
-            StringBuilder builder = new StringBuilder();
+            var builder = new StringBuilder();
 
-            // TODO: Inspect EncLog to find a containing type and display qualified name.
-            builder.AppendFormat("Method {0} (0x{1:X8})", Literal(() => method.Name), MetadataTokens.GetToken(methodHandle));
-            builder.AppendLine();
+            var token = Token(methodHandle, displayTable: false);
+            builder.AppendLine($"Method '{StringUtilities.EscapeNonPrintableCharacters(QualifiedMethodName(methodHandle))}' ({token})");
 
             if (!body.LocalSignature.IsNil)
             {
-                builder.AppendFormat("  Locals: {0}", StandaloneSignature(() => GetLocalSignature(body.LocalSignature)));
-                builder.AppendLine();
+                builder.AppendLine($"  Locals: {StandaloneSignature(() => GetGenerationLocalSignature(body.LocalSignature).Signature)}");
             }
 
-            ILVisualizer.Default.DumpMethod(
+            var declaringTypeDefHandle = _encAddedMemberToParentMap.TryGetValue(methodHandle, out var parentHandle) ? 
+                (TypeDefinitionHandle)parentHandle :
+                GetGenerationMethodDefinition(methodHandle).GetDeclaringType();
+
+            new ILVisualizer(this, scope: declaringTypeDefHandle).DumpMethod(
                 builder,
                 body.MaxStack,
                 body.GetILContent(),
