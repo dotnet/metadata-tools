@@ -201,7 +201,7 @@ namespace Microsoft.Metadata.Tools
 
             generations.Add(generation);
 
-            Debug.Assert(!_arguments.DisplayEmbeddedPdb || _arguments.EncDeltas.Count == 0);
+            Debug.Assert(!_arguments.DisplayEmbeddedPdb || _arguments.EncDeltas.IsEmpty);
 
             // deltas:
             int i = 1;
