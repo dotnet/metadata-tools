@@ -144,7 +144,7 @@ If /g is specified the path must be baseline PE file (generation 0).
         {
             var pathWithoutExtension = System.IO.Path.Combine(dir, i.ToString());
             var ilPath = pathWithoutExtension + ".il";
-            var mdPath = pathWithoutExtension + ".md";
+            var mdPath = pathWithoutExtension + ".meta";
 
             if (!File.Exists(ilPath) || !File.Exists(mdPath))
             {
