@@ -276,6 +276,13 @@ namespace Microsoft.Metadata.Tools
                 }
 
                 VisualizeMemberRefs(mdReader);
+
+                if (_arguments.DisplayStatistics)
+                {
+                    // TODO: separate kinds per generation
+                    var statistics = new MetadataStatistics(_writer, mdReader, visualizer.GetBlobKinds());
+                    statistics.Visualize();
+                }
             }
         }
 
@@ -369,18 +376,6 @@ namespace Microsoft.Metadata.Tools
             {
                 yield return file;
             }
-        }
-
-        private void VisualizeStatistics(MetadataReader mdReader)
-        {
-            if (!_arguments.DisplayStatistics)
-            {
-                return;
-            }
-
-            WriteData("> method definitions: {0}, {1:F1}% with bodies",
-                mdReader.MethodDefinitions.Count,
-                100 * ((double)mdReader.MethodDefinitions.Count(handle => mdReader.GetMethodDefinition(handle).RelativeVirtualAddress != 0) / mdReader.MethodDefinitions.Count));
         }
 
         private void VisualizeAssemblyReferences(MetadataReader mdReader)
@@ -525,46 +520,44 @@ namespace Microsoft.Metadata.Tools
 
             foreach (var file in GetAllBinaries(_arguments.Path))
             {
-                using (var peReader = new PEReader(File.OpenRead(file)))
+                using var peReader = new PEReader(File.OpenRead(file));
+
+                try
                 {
-                    try
+                    if (!peReader.HasMetadata)
                     {
-                        if (!peReader.HasMetadata)
-                        {
-                            continue;
-                        }
-                    }
-                    catch (BadImageFormatException e)
-                    {
-                        _writer.WriteLine("{0}: {1}", file, e.Message);
-                        hasError = true;
                         continue;
                     }
-
-                    _pendingTitle = file;
-
-                    try
-                    {
-                        var mdReader = peReader.GetMetadataReader();
-
-                        VisualizeAssemblyReferences(mdReader);
-                        VisualizeStatistics(mdReader);
-                        VisualizeMemberRefs(mdReader);
-                    }
-                    catch (BadImageFormatException e)
-                    {
-                        WriteData("ERROR: {0}", e.Message);
-                        hasError = true;
-                        continue;
-                    }
-
-                    if (_pendingTitle == null)
-                    {
-                        _writer.WriteLine();
-                    }
-
-                    _pendingTitle = null;
                 }
+                catch (BadImageFormatException e)
+                {
+                    _writer.WriteLine("{0}: {1}", file, e.Message);
+                    hasError = true;
+                    continue;
+                }
+
+                _pendingTitle = file;
+
+                try
+                {
+                    var mdReader = peReader.GetMetadataReader();
+
+                    VisualizeAssemblyReferences(mdReader);
+                    VisualizeMemberRefs(mdReader);
+                }
+                catch (BadImageFormatException e)
+                {
+                    WriteData("ERROR: {0}", e.Message);
+                    hasError = true;
+                    continue;
+                }
+
+                if (_pendingTitle == null)
+                {
+                    _writer.WriteLine();
+                }
+
+                _pendingTitle = null;
             }
 
             return hasError ? 1 : 0;

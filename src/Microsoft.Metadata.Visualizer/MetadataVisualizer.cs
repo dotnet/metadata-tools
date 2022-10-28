@@ -34,150 +34,7 @@ namespace Microsoft.Metadata.Tools
     {
         private const string BadMetadataStr = "<bad metadata>";
 
-        private enum BlobKind
-        {
-            None,
-            Key,
-            FileHash,
-
-            MethodSignature,
-            FieldSignature,
-            MemberRefSignature,
-            StandAloneSignature,
-
-            TypeSpec,
-            MethodSpec,
-
-            ConstantValue,
-            Marshalling,
-            PermissionSet,
-            CustomAttribute,
-
-            DocumentName,
-            DocumentHash,
-            SequencePoints,
-            Imports,
-            ImportAlias,
-            ImportNamespace,
-            LocalConstantSignature,
-            CustomDebugInformation,
-
-            Count
-        }
-
         private delegate TResult FuncRef<TArg, TResult>(ref TArg arg); 
-
-        private sealed class TableBuilder
-        {
-            private readonly string _title;
-            private readonly string[] _header;
-            private readonly List<(string[] fields, string details)> _rows;
-
-            public char HorizontalSeparatorChar = '=';
-            public string Indent = "";
-            public int FirstRowNumber = 1;
-
-            public TableBuilder(string title, params string[] header)
-            {
-                _rows = new List<(string[] fields, string details)>();
-                _title = title;
-                _header = header;
-            }
-
-            public int RowCount
-                => _rows.Count;
-
-            public void AddRow(params string[] fields)
-                => AddRowWithDetails(fields, details: null);
-
-            public void AddRowWithDetails(string[] fields, string details)
-            {
-                Debug.Assert(_header.Length == fields.Length);
-                _rows.Add((fields, details));
-            }
-
-            public void WriteTo(TextWriter writer)
-            {
-                if (_rows.Count == 0)
-                {
-                    return;
-                }
-
-                if (_title != null)
-                {
-                    writer.Write(Indent);
-                    writer.WriteLine(_title);
-                }
-
-                string columnSeparator = "  ";
-                var columnWidths = new int[_rows.First().fields.Length];
-
-                void updateColumnWidths( string[] fields)
-                {
-                    for (int i = 0; i < fields.Length; i++)
-                    {
-                        columnWidths[i] = Math.Max(columnWidths[i], fields[i].Length + columnSeparator.Length);
-                    }
-                }
-
-                updateColumnWidths(_header);
-
-                foreach (var (fields, _) in _rows)
-                {
-                    updateColumnWidths(fields);
-                }
-
-                void writeRow(string[] fields)
-                {
-                    for (int i = 0; i < fields.Length; i++)
-                    {
-                        var field = fields[i];
-
-                        writer.Write(field);
-                        writer.Write(new string(' ', columnWidths[i] - field.Length));
-                    }
-                }
-
-                // header:
-                int rowNumberWidth = (FirstRowNumber + _rows.Count - 1).ToString("x").Length;
-                int tableWidth = Math.Max(_title?.Length ?? 0, columnWidths.Sum() + columnWidths.Length);
-                string horizontalSeparator = new string(HorizontalSeparatorChar, tableWidth);
-
-                writer.Write(Indent);
-                writer.WriteLine(horizontalSeparator);
-
-                writer.Write(Indent);
-                writer.Write(new string(' ', rowNumberWidth + 2));
-
-                writeRow(_header);
-
-                writer.WriteLine();
-                writer.Write(Indent);
-                writer.WriteLine(horizontalSeparator);
-
-                // rows:
-                int rowNumber = FirstRowNumber;
-                foreach (var (fields, details) in _rows)
-                {
-                    string rowNumberStr = rowNumber.ToString("x");
-                    writer.Write(Indent);
-                    writer.Write(new string(' ', rowNumberWidth - rowNumberStr.Length));
-                    writer.Write(rowNumberStr);
-                    writer.Write(": ");
-
-                    writeRow(fields);
-                    writer.WriteLine();
-
-                    if (details != null)
-                    {
-                        writer.Write(Indent);
-                        writer.Write(details);
-                    }
-
-                    rowNumber++;
-                }
-            }
-        }
 
         private readonly TextWriter _writer;
         private readonly IReadOnlyList<MetadataReader> _readers;
@@ -224,6 +81,9 @@ namespace Microsoft.Metadata.Tools
             : this(writer, readers, options)
         {
         }
+
+        public ImmutableDictionary<BlobHandle, BlobKind> GetBlobKinds()
+            => _blobKinds.ToImmutableDictionary();
 
         private ImmutableDictionary<EntityHandle, EntityHandle> CalculateEncAddedMemberToParentMap()
         {
@@ -325,17 +185,11 @@ namespace Microsoft.Metadata.Tools
 
         private bool IsDelta => _reader.GetTableRowCount(TableIndex.EncLog) > 0;
 
-        private string MakeTableName(TableIndex index)
-            => $"{index} (index: 0x{(byte)index:X2}, size: {_reader.GetTableRowCount(index) * _reader.GetTableRowSize(index)}): ";
+        private string MakeTableName(TableIndex table)
+            => $"{table} (index: 0x{(byte)table:X2}, size: {_reader.GetTableSize(table)}): ";
 
         private void WriteTable(TableBuilder table)
-        {
-            if (table.RowCount > 0)
-            {
-                table.WriteTo(_writer);
-                _writer.WriteLine();
-            }
-        }
+            => table.WriteTo(_writer);
 
         private EntityHandle GetAggregateHandle(EntityHandle generationHandle, int generation)
         {
@@ -1934,8 +1788,6 @@ namespace Microsoft.Metadata.Tools
             var heapOffset = _reader.GetHeapMetadataOffset(HeapIndex.Blob);
             bool hasBadMetadata = false;
 
-            int[] sizePerKind = new int[(int)BlobKind.Count];
-
             _writer.WriteLine($"#Blob (size = {heapSize}):");
             var handle = MetadataTokens.BlobHandle(0);
             do
@@ -1976,9 +1828,6 @@ namespace Microsoft.Metadata.Tools
                 if (_blobKinds.TryGetValue(handle, out var kind))
                 {
                     kindString = " (" + kind + ")";
-
-                    // ignoring the compressed blob size:
-                    sizePerKind[(int)kind] += value.Length;
                 }
 
                 if (value.Length > 0)
@@ -2001,17 +1850,6 @@ namespace Microsoft.Metadata.Tools
                 handle = _reader.GetNextHandle(handle);
             }
             while (!handle.IsNil);
-
-            _writer.WriteLine();
-            _writer.WriteLine("Sizes:");
-
-            for (int i = 0; i < sizePerKind.Length; i++)
-            {
-                if (sizePerKind[i] > 0)
-                {
-                    _writer.WriteLine($"  {(BlobKind)i}: {(decimal)sizePerKind[i]} bytes");
-                }
-            }
 
             // don't calculate statistics for EnC delta, it's not interesting
             if (_aggregator == null)
