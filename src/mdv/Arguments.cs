@@ -56,7 +56,7 @@ If /g is specified the path must be baseline PE file (generation 0).
     {
         var result = new Arguments();
 
-        if (args.Length > 0 && !args[0].StartsWith("/"))
+        if (args.Length > 0 && (!args[0].StartsWith("/") || File.Exists(args[0])))
         {
             result.Path = args[0];
             result.Recursive = Directory.Exists(args[0]);
