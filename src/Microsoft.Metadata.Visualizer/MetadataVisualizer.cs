@@ -539,17 +539,32 @@ namespace Microsoft.Metadata.Tools
                         return MethodSignature(decoder.DecodeMethodSignature(ref sigReader));
 
                     case BlobKind.StandAloneSignature:
-                        return string.Join(", ", decoder.DecodeLocalSignature(ref sigReader));
+                        {
+                            var header = sigReader.ReadSignatureHeader();
+                            sigReader.Offset = 0;
+                            return header.Kind switch
+                            {
+                                // calli signatures
+                                SignatureKind.Method => MethodSignature(decoder.DecodeMethodSignature(ref sigReader)),
+
+                                // local signatures
+                                SignatureKind.LocalVariables => string.Join(", ", decoder.DecodeLocalSignature(ref sigReader)),
+
+                                _ => throw new BadImageFormatException(),
+                            };
+                        }
 
                     case BlobKind.MemberRefSignature:
-                        var header = sigReader.ReadSignatureHeader();
-                        sigReader.Offset = 0;
-                        return header.Kind switch
                         {
-                            SignatureKind.Field => decoder.DecodeFieldSignature(ref sigReader),
-                            SignatureKind.Method => MethodSignature(decoder.DecodeMethodSignature(ref sigReader)),
-                            _ => throw new BadImageFormatException(),
-                        };
+                            var header = sigReader.ReadSignatureHeader();
+                            sigReader.Offset = 0;
+                            return header.Kind switch
+                            {
+                                SignatureKind.Field => decoder.DecodeFieldSignature(ref sigReader),
+                                SignatureKind.Method => MethodSignature(decoder.DecodeMethodSignature(ref sigReader)),
+                                _ => throw new BadImageFormatException(),
+                            };
+                        }
 
                     case BlobKind.MethodSpec:
                         return string.Join(", ", decoder.DecodeMethodSpecificationSignature(ref sigReader));
@@ -697,7 +712,8 @@ namespace Microsoft.Metadata.Tools
             try
             {
                 var typeReference = GetGenerationTypeDefinition(handle);
-                return GetString(typeReference.Namespace) + "." + GetString(typeReference.Name);
+                var name = GetString(typeReference.Name);
+                return typeReference.Namespace.IsNil ? name : GetString(typeReference.Namespace) + "." + name;
             }
             catch (BadImageFormatException)
             {
