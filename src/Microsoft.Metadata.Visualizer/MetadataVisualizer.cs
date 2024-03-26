@@ -451,10 +451,6 @@ namespace Microsoft.Metadata.Tools
             return "{" + guid + "}";
         }
 
-        // TODO: update Microsoft.CodeAnalysis.Debugging package and remove
-        public static readonly Guid CompilationMetadataReferences = new Guid("7E4D4708-096E-4C5C-AEDA-CB10BA6A740D");
-        public static readonly Guid CompilationOptions = new Guid("B5FEEC05-8CD0-4A83-96DA-466284BB4BD8");
-
         private string GetCustomDebugInformationKind(Guid guid)
         {
             if (guid == PortableCustomDebugInfoKinds.AsyncMethodSteppingInformationBlob) return "Async Method Stepping Information";
@@ -466,8 +462,10 @@ namespace Microsoft.Metadata.Tools
             if (guid == PortableCustomDebugInfoKinds.EncLambdaAndClosureMap) return "EnC Lambda and Closure Map";
             if (guid == PortableCustomDebugInfoKinds.EmbeddedSource) return "Embedded Source";
             if (guid == PortableCustomDebugInfoKinds.SourceLink) return "Source Link";
-            if (guid == CompilationMetadataReferences) return "Compilation Metadata References";
-            if (guid == CompilationOptions) return "Compilation Options";
+            if (guid == PortableCustomDebugInfoKinds.CompilationMetadataReferences) return "Compilation Metadata References";
+            if (guid == PortableCustomDebugInfoKinds.CompilationOptions) return "Compilation Options";
+            if (guid == PortableCustomDebugInfoKinds.TypeDefinitionDocuments) return "Type Definition Documents";
+            if (guid == PortableCustomDebugInfoKinds.PrimaryConstructorInformationBlob) return "Primary Constructor";
 
             return "{" + guid + "}";
         }
@@ -2483,12 +2481,12 @@ namespace Microsoft.Metadata.Tools
                 return VisualizeSourceLink(blobReader);
             }
 
-            if (kind == CompilationMetadataReferences)
+            if (kind == PortableCustomDebugInfoKinds.CompilationMetadataReferences)
             {
                 return VisualizeCompilationMetadataReferences(blobReader);
             }
 
-            if (kind == CompilationOptions)
+            if (kind == PortableCustomDebugInfoKinds.CompilationOptions)
             {
                 return VisualizeCompilationOptions(blobReader);
             }
@@ -2496,6 +2494,17 @@ namespace Microsoft.Metadata.Tools
             if (kind == PortableCustomDebugInfoKinds.EmbeddedSource && _options.HasFlag(MetadataVisualizerOptions.EmbeddedSource))
             {
                 return VisualizeEmbeddedSource(blobReader);
+            }
+
+            if (kind == PortableCustomDebugInfoKinds.TypeDefinitionDocuments)
+            {
+                return VisualizeTypeDefinitionDocuments(blobReader);
+            }
+
+            if (kind == PortableCustomDebugInfoKinds.PrimaryConstructorInformationBlob)
+            {
+                // the blob is empty
+                return null;
             }
 
             return null;
@@ -2672,6 +2681,36 @@ namespace Microsoft.Metadata.Tools
                 builder.AppendLine(Encoding.UTF8.GetString(bytes));
                 builder.AppendLine("<<< End of Embedded Source");
             }
+            return builder.ToString();
+        }
+
+        private string VisualizeTypeDefinitionDocuments(BlobReader reader)
+        {
+            var builder = new StringBuilder();
+            builder.Append("Documents: {");
+
+            var first = true;
+            while (reader.RemainingBytes > 0)
+            {
+                if (!first)
+                {
+                    builder.Append(", ");
+                }
+
+                int? documentRowId = null;
+                try { documentRowId = reader.ReadCompressedInteger(); } catch { }
+
+                if (documentRowId == null)
+                {
+                    builder.Append(BadMetadataStr);
+                    break;
+                }
+
+                builder.Append(Token(MetadataTokens.DocumentHandle(documentRowId.Value), displayTable: false));
+                first = false;
+            }
+
+            builder.AppendLine("}");
             return builder.ToString();
         }
 
