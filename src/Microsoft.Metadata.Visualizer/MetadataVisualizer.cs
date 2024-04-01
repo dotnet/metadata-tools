@@ -263,6 +263,8 @@ namespace Microsoft.Metadata.Tools
             return builder.ToImmutable();
         }
 
+        private bool IsDelta => _reader.GetTableRowCount(TableIndex.EncLog) > 0;
+
         private bool NoHeapReferences => (_options & MetadataVisualizerOptions.NoHeapReferences) != 0;
 
         public void VisualizeAllGenerations()
@@ -282,41 +284,50 @@ namespace Microsoft.Metadata.Tools
         {
             _reader = (generation >= 0) ? _readers[generation] : _readers[_readers.Count - 1];
 
-            WriteModule();
-            WriteTypeRef();
-            WriteTypeDef(generation);
-            WriteField(generation);
-            WriteMethod(generation);
-            WriteParam(generation);
-            WriteMemberRef();
-            WriteConstant();
-            WriteCustomAttribute();
-            WriteDeclSecurity();
-            WriteStandAloneSig();
-            WriteEvent();
-            WriteProperty();
-            WriteMethodImpl();
-            WriteModuleRef();
-            WriteTypeSpec();
-            WriteEnCLog();
-            WriteEnCMap();
-            WriteAssembly();
-            WriteAssemblyRef();
-            WriteFile();
-            WriteExportedType();
-            WriteManifestResource();
-            WriteGenericParam(generation);
-            WriteMethodSpec();
-            WriteGenericParamConstraint();
+            var tables = new List<TableBuilder>
+            {
+                // type-system tables:
+                ReadModuleTable(),
+                ReadTypeRefTable(),
+                ReadTypeDefTable(generation),
+                ReadFieldTable(generation),
+                ReadMethodTable(generation),
+                ReadParamTable(generation),
+                ReadMemberRefTable(),
+                ReadConstantTable(),
+                ReadCustomAttributeTable(),
+                ReadDeclSecurityTable(),
+                ReadStandAloneSigTable(),
+                ReadEventTable(),
+                ReadPropertyTable(),
+                ReadMethodImplTable(),
+                ReadModuleRefTable(),
+                ReadTypeSpecTable(),
+                ReadEnCLogTable(),
+                ReadEnCMapTable(),
+                ReadAssemblyTable(),
+                ReadAssemblyRefTable(),
+                ReadFileTable(),
+                ReadExportedTypeTable(),
+                ReadManifestResourceTable(),
+                ReadGenericParamTable(generation),
+                ReadMethodSpecTable(),
+                ReadGenericParamConstraintTable(),
 
-            // debug tables:
-            WriteDocument();
-            WriteMethodDebugInformation();
-            WriteLocalScope();
-            WriteLocalVariable();
-            WriteLocalConstant();
-            WriteImportScope();
-            WriteCustomDebugInformation();
+                // debug tables:
+                ReadDocumentTable(),
+                ReadMethodDebugInformationTable(),
+                ReadLocalScopeTable(),
+                ReadLocalVariableTable(),
+                ReadLocalConstantTable(),
+                ReadImportScopeTable(),
+                ReadCustomDebugInformationTable()
+            };
+
+            foreach (var table in tables)
+            {
+                WriteTable(table);
+            }
 
             // heaps:
             WriteUserStrings();
@@ -324,8 +335,6 @@ namespace Microsoft.Metadata.Tools
             WriteBlobs();
             WriteGuids();
         }
-
-        private bool IsDelta => _reader.GetTableRowCount(TableIndex.EncLog) > 0;
 
         private string MakeTableName(TableIndex index)
             => $"{index} (index: 0x{(byte)index:X2}, size: {_reader.GetTableRowCount(index) * _reader.GetTableRowSize(index)}): ";
@@ -1194,15 +1203,8 @@ namespace Microsoft.Metadata.Tools
             _writer.WriteLine();
         }
 
-        private void WriteModule()
+        private TableBuilder ReadModuleTable()
         {
-            if (_reader.DebugMetadataHeader != null)
-            {
-                return;
-            }
-
-            var def = _reader.GetModuleDefinition();
-
             var table = new TableBuilder(
                 "Module (0x00):",
                 "Gen",
@@ -1212,6 +1214,13 @@ namespace Microsoft.Metadata.Tools
                 "EncBaseId"
             );
 
+            if (_reader.DebugMetadataHeader != null)
+            {
+                return table;
+            }
+
+            var def = _reader.GetModuleDefinition();
+
             table.AddRow(
                 ToString(() => def.Generation),
                 Literal(() => def.Name),
@@ -1219,10 +1228,10 @@ namespace Microsoft.Metadata.Tools
                 Literal(() => def.GenerationId),
                 Literal(() => def.BaseGenerationId));
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteTypeRef()
+        private TableBuilder ReadTypeRefTable()
         {
             var table = new TableBuilder(
                 "TypeRef (0x01):",
@@ -1242,10 +1251,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteTypeDef(int generation)
+        private TableBuilder ReadTypeDefTable(int generation)
         {
             var table = new TableBuilder(
                 "TypeDef (0x02):",
@@ -1288,10 +1297,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteField(int generation)
+        private TableBuilder ReadFieldTable(int generation)
         {
             var table = new TableBuilder(
                 "Field (0x04):",
@@ -1325,10 +1334,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteMethod(int generation)
+        private TableBuilder ReadMethodTable(int generation)
         {
             var table = new TableBuilder(
                 "Method (0x06, 0x1C):",
@@ -1368,10 +1377,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteParam(int generation)
+        private TableBuilder ReadParamTable(int generation)
         {
             var table = new TableBuilder(
                 "Param (0x08):",
@@ -1398,10 +1407,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteMemberRef()
+        private TableBuilder ReadMemberRefTable()
         {
             var table = new TableBuilder(
                 "MemberRef (0x0a):",
@@ -1421,10 +1430,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteConstant()
+        private TableBuilder ReadConstantTable()
         {
             var table = new TableBuilder(
                 "Constant (0x0b):",
@@ -1444,10 +1453,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteCustomAttribute()
+        private TableBuilder ReadCustomAttributeTable()
         {
             var table = new TableBuilder(
                 "CustomAttribute (0x0c):",
@@ -1467,10 +1476,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteDeclSecurity()
+        private TableBuilder ReadDeclSecurityTable()
         {
             var table = new TableBuilder(
                 "DeclSecurity (0x0e):",
@@ -1490,10 +1499,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteStandAloneSig()
+        private TableBuilder ReadStandAloneSigTable()
         {
             var table = new TableBuilder(
                 "StandAloneSig (0x11):",
@@ -1506,10 +1515,10 @@ namespace Microsoft.Metadata.Tools
                 table.AddRow(StandaloneSignature(() => entry.Signature));
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteEvent()
+        private TableBuilder ReadEventTable()
         {
             var table = new TableBuilder(
                 "Event (0x12, 0x14, 0x18):",
@@ -1534,10 +1543,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteProperty()
+        private TableBuilder ReadPropertyTable()
         {
             var table = new TableBuilder(
                 "Property (0x15, 0x17, 0x18):",
@@ -1560,10 +1569,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteMethodImpl()
+        private TableBuilder ReadMethodImplTable()
         {
             var table = new TableBuilder(
                 "MethodImpl (0x19):",
@@ -1583,10 +1592,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteModuleRef()
+        private TableBuilder ReadModuleRefTable()
         {
             var table = new TableBuilder(
                 "ModuleRef (0x1a):",
@@ -1599,10 +1608,10 @@ namespace Microsoft.Metadata.Tools
                 table.AddRow(Literal(() => entry.Name));
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteTypeSpec()
+        private TableBuilder ReadTypeSpecTable()
         {
             var table = new TableBuilder(
                 "TypeSpec (0x1b):",
@@ -1614,10 +1623,10 @@ namespace Microsoft.Metadata.Tools
                 table.AddRow(TypeSpecificationSignature(() => entry.Signature));
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteEnCLog()
+        private TableBuilder ReadEnCLogTable()
         {
             var table = new TableBuilder(
                 "EnC Log (0x1e):",
@@ -1631,10 +1640,10 @@ namespace Microsoft.Metadata.Tools
                     EnumValue<int>(() => entry.Operation));
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteEnCMap()
+        private TableBuilder ReadEnCMapTable()
         {
             TableBuilder table;
             if (_aggregator != null)
@@ -1668,16 +1677,11 @@ namespace Microsoft.Metadata.Tools
                 }
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteAssembly()
+        private TableBuilder ReadAssemblyTable()
         {
-            if (!_reader.IsAssembly)
-            {
-                return;
-            }
-
             var table = new TableBuilder(
                 "Assembly (0x20):",
                 "Name",
@@ -1687,6 +1691,11 @@ namespace Microsoft.Metadata.Tools
                 "Flags",
                 "HashAlgorithm"
             );
+
+            if (!_reader.IsAssembly)
+            {
+                return table;
+            }
 
             var entry = _reader.GetAssemblyDefinition();
 
@@ -1699,10 +1708,10 @@ namespace Microsoft.Metadata.Tools
                 EnumValue<int>(() => entry.HashAlgorithm)
             );
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteAssemblyRef()
+        private TableBuilder ReadAssemblyRefTable()
         {
             var table = new TableBuilder(
                 "AssemblyRef (0x23):",
@@ -1726,10 +1735,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteFile()
+        private TableBuilder ReadFileTable()
         {
             var table = new TableBuilder(
                 "File (0x26):",
@@ -1749,10 +1758,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteExportedType()
+        private TableBuilder ReadExportedTypeTable()
         {
             var table = new TableBuilder(
                 "ExportedType (0x27):",
@@ -1778,10 +1787,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteManifestResource()
+        private TableBuilder ReadManifestResourceTable()
         {
             var table = new TableBuilder(
                 "ManifestResource (0x28):",
@@ -1803,10 +1812,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteGenericParam(int generation)
+        private TableBuilder ReadGenericParamTable(int generation)
         {
             var table = new TableBuilder(
                 "GenericParam (0x2a):",
@@ -1835,10 +1844,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteMethodSpec()
+        private TableBuilder ReadMethodSpecTable()
         {
             var table = new TableBuilder(
                 "MethodSpec (0x2b):",
@@ -1856,10 +1865,10 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
-        private void WriteGenericParamConstraint()
+        private TableBuilder ReadGenericParamConstraintTable()
         {
             var table = new TableBuilder(
                 "GenericParamConstraint (0x2c):",
@@ -1877,7 +1886,7 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
         private void WriteUserStrings()
@@ -2094,6 +2103,9 @@ namespace Microsoft.Metadata.Tools
         }
 
         public void WriteDocument()
+          => WriteTable(ReadDocumentTable());
+
+        private TableBuilder ReadDocumentTable()
         {
             var table = new TableBuilder(
                 MakeTableName(TableIndex.Document),
@@ -2115,20 +2127,23 @@ namespace Microsoft.Metadata.Tools
                );
             }
 
-            WriteTable(table);
+            return table;
         }
 
         public void WriteMethodDebugInformation()
-        {
-            if (_reader.MethodDebugInformation.Count == 0)
-            {
-                return;
-            }
+          => WriteTable(ReadMethodDebugInformationTable());
 
+        private TableBuilder ReadMethodDebugInformationTable()
+        {
             var table = new TableBuilder(
                 MakeTableName(TableIndex.MethodDebugInformation),
                 "IL"
             );
+
+            if (_reader.MethodDebugInformation.Count == 0)
+            {
+                return table;
+            }
 
             var detailsBuilder = new StringBuilder();
 
@@ -2211,10 +2226,13 @@ namespace Microsoft.Metadata.Tools
                 table.AddRowWithDetails(new[] { HeapOffset(() => entry.SequencePointsBlob) }, details);
             }
 
-            WriteTable(table);
+            return table;
         }
 
         public void WriteLocalScope()
+          => WriteTable(ReadLocalScopeTable());
+
+        private TableBuilder ReadLocalScopeTable()
         {
             var table = new TableBuilder(
                 MakeTableName(TableIndex.LocalScope),
@@ -2240,10 +2258,13 @@ namespace Microsoft.Metadata.Tools
                );
             }
 
-            WriteTable(table);
+            return table;
         }
 
         public void WriteLocalVariable()
+          => WriteTable(ReadLocalVariableTable());
+
+        private TableBuilder ReadLocalVariableTable()
         {
             var table = new TableBuilder(
                 MakeTableName(TableIndex.LocalVariable),
@@ -2263,10 +2284,13 @@ namespace Microsoft.Metadata.Tools
                );
             }
 
-            WriteTable(table);
+            return table;
         }
 
         public void WriteLocalConstant()
+          => WriteTable(ReadLocalConstantTable());
+
+        private TableBuilder ReadLocalConstantTable()
         {
             var table = new TableBuilder(
                 MakeTableName(TableIndex.LocalConstant),
@@ -2284,7 +2308,7 @@ namespace Microsoft.Metadata.Tools
                );
             }
 
-            WriteTable(table);
+            return table;
         }
 
         private SignatureTypeCode ReadConstantTypeCode(ref BlobReader sigReader, List<string> modifiers)
@@ -2403,7 +2427,7 @@ namespace Microsoft.Metadata.Tools
             }
         }
 
-        public void WriteImportScope()
+        private TableBuilder ReadImportScopeTable()
         {
             var table = new TableBuilder(
                 MakeTableName(TableIndex.ImportScope),
@@ -2423,10 +2447,13 @@ namespace Microsoft.Metadata.Tools
                );
             }
 
-            WriteTable(table);
+            return table;
         }
 
         public void WriteCustomDebugInformation()
+            => WriteTable(ReadCustomDebugInformationTable());
+
+        private TableBuilder ReadCustomDebugInformationTable()
         {
             const int BlobSizeLimit = 32;
 
@@ -2452,7 +2479,7 @@ namespace Microsoft.Metadata.Tools
                 );
             }
 
-            WriteTable(table);
+            return table;
         }
 
         public string TryDecodeCustomDebugInformation(CustomDebugInformation entry)
