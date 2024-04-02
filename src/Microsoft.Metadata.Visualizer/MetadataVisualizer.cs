@@ -13,7 +13,6 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Linq.Expressions;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -36,35 +35,57 @@ namespace Microsoft.Metadata.Tools
     {
         private const string BadMetadataStr = "<bad metadata>";
 
+        [Flags]
         private enum BlobKind
         {
-            None,
-            Key,
-            FileHash,
+            None = 0,
+            Key = 1 << 0,
+            FileHash = 1 << 1,
 
-            MethodSignature,
-            FieldSignature,
-            MemberRefSignature,
-            StandAloneSignature,
+            MethodSignature = 1 << 2,
+            FieldSignature = 1 << 3,
+            MemberRefSignature = 1 << 4,
+            StandAloneSignature = 1 << 5,
 
-            TypeSpec,
-            MethodSpec,
+            TypeSpec = 1 << 6,
+            MethodSpec = 1 << 7,
 
-            ConstantValue,
-            Marshalling,
-            PermissionSet,
-            CustomAttribute,
+            ConstantValue = 1 << 8,
+            Marshalling = 1 << 9,
+            PermissionSet = 1 << 10,
+            CustomAttribute = 1 << 11,
 
-            DocumentName,
-            DocumentHash,
-            SequencePoints,
-            Imports,
-            ImportAlias,
-            ImportNamespace,
-            LocalConstantSignature,
-            CustomDebugInformation,
+            DocumentName = 1 << 12,
+            DocumentHash = 1 << 13,
+            SequencePoints = 1 << 14,
+            Imports = 1 << 15,
+            ImportAlias = 1 << 16,
+            ImportNamespace = 1 << 17,
+            LocalConstantSignature = 1 << 18,
+            CustomDebugInformation = 1 << 19,
+        }
 
-            Count
+        [Flags]
+        private enum StringKind
+        {
+            None = 0,
+            TypeName = 1 << 0,
+            MethodName = 1 << 1,
+            FieldName = 1 << 2,
+            NamespaceName = 1 << 3,
+            ModuleName = 1 << 4,
+            MethodImportName = 1 << 5,
+            ParamName = 1 << 6,
+            MemberName = 1 << 7,
+            EventName = 1 << 8,
+            ResourceName = 1 << 9,
+            PropertyName = 1 << 10,
+            AssemblyName = 1 << 11,
+            CultureName = 1 << 12,
+            GenericParamName = 1 << 13,
+            LocalVariableName = 1 << 14,
+            ConstantName = 1 << 15,
+            FileName = 1 << 16
         }
 
         private delegate TResult FuncRef<TArg, TResult>(ref TArg arg); 
@@ -191,8 +212,12 @@ namespace Microsoft.Metadata.Tools
         private readonly ImmutableArray<ImmutableArray<EntityHandle>> _encMaps;
         private readonly ImmutableDictionary<EntityHandle, EntityHandle> _encAddedMemberToParentMap;
 
+        private int _stringHeapBaseOffset = 0;
+        private int _blobHeapBaseOffset = 0;
+        private int _generation = -1;
         private MetadataReader _reader;
-        private readonly Dictionary<BlobHandle, BlobKind> _blobKinds = new();
+        private readonly Dictionary<BlobHandle, BlobKind> _blobKinds = [];
+        private readonly Dictionary<StringHandle, StringKind> _stringKinds = [];
 
         private MetadataVisualizer(TextWriter writer, IReadOnlyList<MetadataReader> readers, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
         {
@@ -282,10 +307,40 @@ namespace Microsoft.Metadata.Tools
 
         public void Visualize(int generation = -1)
         {
-            _reader = (generation >= 0) ? _readers[generation] : _readers[_readers.Count - 1];
-
-            var tables = new List<TableBuilder>
+            if (generation < 0)
             {
+                generation = _readers.Count - 1;
+            }
+
+            _generation = generation;
+            _reader = _readers[generation];
+
+            var tables = ReadTables();
+
+            if (IsDelta && _aggregator == null)
+            {
+                _stringHeapBaseOffset = GetHeapBaseOffset(generation, HeapIndex.String, _stringKinds.Keys, MetadataTokens.GetHeapOffset);
+                _blobHeapBaseOffset = GetHeapBaseOffset(generation, HeapIndex.Blob, _blobKinds.Keys, MetadataTokens.GetHeapOffset);
+
+                // read the tables again, this time we use the base offset:
+                tables = ReadTables();
+            }
+
+            foreach (var table in tables)
+            {
+                WriteTable(table);
+            }
+
+            // heaps:
+            WriteUserStrings();
+            WriteStrings(generation);
+            WriteBlobs(generation);
+            WriteGuids();
+
+            WriteCustomAttributeSizes();
+
+            IList<TableBuilder> ReadTables() =>
+            [
                 // type-system tables:
                 ReadModuleTable(),
                 ReadTypeRefTable(),
@@ -322,18 +377,7 @@ namespace Microsoft.Metadata.Tools
                 ReadLocalConstantTable(),
                 ReadImportScopeTable(),
                 ReadCustomDebugInformationTable()
-            };
-
-            foreach (var table in tables)
-            {
-                WriteTable(table);
-            }
-
-            // heaps:
-            WriteUserStrings();
-            WriteStrings();
-            WriteBlobs();
-            WriteGuids();
+            ];
         }
 
         private string MakeTableName(TableIndex index)
@@ -611,6 +655,11 @@ namespace Microsoft.Metadata.Tools
 
         private string QualifiedTypeDefinitionName(TypeDefinitionHandle handle)
         {
+            if (IsDelta && _aggregator == null)
+            {
+                return Token(handle, displayTable: true);
+            }
+
             var builder = new StringBuilder();
             Recurse(handle, isLastPart: true);
             return builder.ToString();
@@ -672,6 +721,11 @@ namespace Microsoft.Metadata.Tools
             Func<TMemberEntity, TypeDefinitionHandle> declaringTypeGetter,
             Func<MetadataReader, Handle, TMemberEntity> entityGetter)
         {
+            if (IsDelta && _aggregator == null)
+            {
+                return Token(memberHandle, displayTable: true);
+            }
+
             try
             {
                 var member = GetGenerationEntity(memberHandle, entityGetter);
@@ -690,6 +744,11 @@ namespace Microsoft.Metadata.Tools
 
         private string QualifiedMemberReferenceName(MemberReferenceHandle handle)
         {
+            if (IsDelta && _aggregator == null)
+            {
+                return Token(handle, displayTable: true);
+            }
+
             try
             {
                 var memberReference = GetGenerationMemberReference(handle);
@@ -703,6 +762,11 @@ namespace Microsoft.Metadata.Tools
 
         private string QualifiedTypeReferenceName(TypeReferenceHandle handle)
         {
+            if (IsDelta && _aggregator == null)
+            {
+                return Token(handle, displayTable: true);
+            }
+
             try
             {
                 var typeReference = GetGenerationTypeDefinition(handle);
@@ -716,6 +780,11 @@ namespace Microsoft.Metadata.Tools
 
         private string QualifiedMethodSpecificationName(MethodSpecificationHandle handle)
         {
+            if (IsDelta && _aggregator == null)
+            {
+                return Token(handle, displayTable: true);
+            }
+
             MethodSpecification methodSpecification;
             try
             {
@@ -751,6 +820,11 @@ namespace Microsoft.Metadata.Tools
 
         private string QualifiedTypeSpecificationName(TypeSpecificationHandle handle)
         {
+            if (IsDelta && _aggregator == null)
+            {
+                return Token(handle, displayTable: true);
+            }
+
             TypeSpecification typeSpecification;
             try
             {
@@ -787,6 +861,26 @@ namespace Microsoft.Metadata.Tools
                 _ => null
             };
 
+        private StringHandle MarkKind(StringHandle handle, StringKind kind)
+        {
+            if (!handle.IsNil && kind != StringKind.None)
+            {
+                _stringKinds[handle] = _stringKinds.TryGetValue(handle, out var existing) ? existing | kind : kind;
+            }
+
+            return handle;
+        }
+
+        private BlobHandle MarkKind(BlobHandle handle, BlobKind kind)
+        {
+            if (!handle.IsNil && kind != BlobKind.None)
+            {
+                _blobKinds[handle] = _blobKinds.TryGetValue(handle, out var existing) ? existing | kind : kind;
+            }
+
+            return handle;
+        }
+
         private string Literal(Func<BlobHandle> getHandle, BlobKind kind) =>
             Literal(getHandle, kind, (r, h) => BitConverter.ToString(r.GetBlobBytes(h)));
 
@@ -795,23 +889,18 @@ namespace Microsoft.Metadata.Tools
             BlobHandle handle;
             try
             {
-                handle = getHandle();
+                handle = MarkKind(getHandle(), kind);
             }
             catch (BadImageFormatException)
             {
                 return BadMetadataStr;
             }
 
-            if (!handle.IsNil && kind != BlobKind.None)
-            {
-                _blobKinds[handle] = kind;
-            }
-
             return Literal(handle, (r, h) => getValue(r, (BlobHandle)h));
         }
 
-        private string Literal(Func<StringHandle> getHandle) =>
-            Literal(() => getHandle(), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((StringHandle)h)) + "'");
+        private string Literal(Func<StringHandle> getHandle, StringKind kind) =>
+            Literal(() => MarkKind(getHandle(), kind), (r, h) => "'" + StringUtilities.EscapeNonPrintableCharacters(r.GetString((StringHandle)h)) + "'");
 
         private string GetString(StringHandle handle) =>
             Literal(handle, (r, h) => r.GetString((StringHandle)h), noHeapReferences: true);
@@ -872,8 +961,33 @@ namespace Microsoft.Metadata.Tools
 
             if (IsDelta)
             {
-                // we can't resolve the literal without aggregate reader
-                return $"#{_reader.GetHeapOffset(handle):x}";
+                int aggregateHeapOffset = _reader.GetHeapOffset(handle);
+
+                return TryDisplay(HandleKind.Blob, _blobHeapBaseOffset, o => MetadataTokens.BlobHandle(o)) ??
+                       TryDisplay(HandleKind.String, _stringHeapBaseOffset, o => MetadataTokens.StringHandle(o)) ??
+                       $"#{aggregateHeapOffset:x}";
+
+                string TryDisplay(HandleKind kind, int heapBaseOffset, Func<int, Handle> getHandle)
+                {
+                    if (handle.Kind == kind && heapBaseOffset > 0)
+                    {
+                        // When reading delta without aggregator we assume that the string is in the current generation
+                        // (this should be true as long as the compiler doesn't reuse strings emitted to previous generations).
+
+                        var generationOffset = aggregateHeapOffset - heapBaseOffset;
+                        try
+                        {
+                            var value = getValue(_reader, getHandle(generationOffset));
+                            return $"{value} (#{generationOffset:x})";
+                        }
+                        catch (BadImageFormatException)
+                        {
+                            // fall through
+                        }
+                    }
+
+                    return null;
+                }
             }
 
             int heapOffset = MetadataTokens.GetHeapOffset(handle);
@@ -1223,7 +1337,7 @@ namespace Microsoft.Metadata.Tools
 
             table.AddRow(
                 ToString(() => def.Generation),
-                Literal(() => def.Name),
+                Literal(() => def.Name, StringKind.ModuleName),
                 Literal(() => def.Mvid),
                 Literal(() => def.GenerationId),
                 Literal(() => def.BaseGenerationId));
@@ -1246,8 +1360,8 @@ namespace Microsoft.Metadata.Tools
 
                 table.AddRow(
                     Token(() => entry.ResolutionScope),
-                    Literal(() => entry.Name),
-                    Literal(() => entry.Namespace)
+                    Literal(() => entry.Name, StringKind.TypeName),
+                    Literal(() => entry.Namespace, StringKind.NamespaceName)
                 );
             }
 
@@ -1284,8 +1398,8 @@ namespace Microsoft.Metadata.Tools
                 var implementedInterfaces = aggregateEntry.GetInterfaceImplementations().Select(h => _reader.GetInterfaceImplementation(h).Interface).ToArray();
 
                 table.AddRow(
-                    Literal(() => entry.Name),
-                    Literal(() => entry.Namespace),
+                    Literal(() => entry.Name, StringKind.TypeName),
+                    Literal(() => entry.Namespace, StringKind.NamespaceName),
                     Token(() => aggregateEntry.GetDeclaringType()),
                     Token(() => entry.BaseType),
                     TokenList(implementedInterfaces),
@@ -1321,7 +1435,7 @@ namespace Microsoft.Metadata.Tools
                 var aggregateEntry = (generation > 0) ? _reader.GetFieldDefinition((FieldDefinitionHandle)GetAggregateHandle(handle, generation)) : entry;
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.FieldName),
                     FieldSignature(() => entry.Signature),
                     EnumValue<int>(() => entry.Attributes),
                     Literal(() => aggregateEntry.GetMarshallingDescriptor(), BlobKind.Marshalling),
@@ -1364,7 +1478,7 @@ namespace Microsoft.Metadata.Tools
                 var import = aggregateEntry.GetImport();
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.MethodName),
                     MethodSignature(() => entry.Signature),
                     Int32Hex(() => entry.RelativeVirtualAddress),
                     MemberTokenRange(entry.GetParameters(), h => h, generation),
@@ -1372,7 +1486,7 @@ namespace Microsoft.Metadata.Tools
                     EnumValue<int>(() => entry.Attributes),    // TODO: we need better visualizer than the default enum
                     EnumValue<int>(() => entry.ImplAttributes),
                     EnumValue<short>(() => import.Attributes),
-                    Literal(() => import.Name),
+                    Literal(() => import.Name, StringKind.MethodImportName),
                     Token(() => import.Module)
                 );
             }
@@ -1400,7 +1514,7 @@ namespace Microsoft.Metadata.Tools
                 var aggregateEntry = (generation > 0) ? _reader.GetParameter((ParameterHandle)GetAggregateHandle(handle, generation)) : entry;
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.ParamName),
                     ToString(() => entry.SequenceNumber),
                     EnumValue<int>(() => entry.Attributes),
                     Literal(() => aggregateEntry.GetMarshallingDescriptor(), BlobKind.Marshalling)
@@ -1425,7 +1539,7 @@ namespace Microsoft.Metadata.Tools
 
                 table.AddRow(
                     Token(() => entry.Parent),
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.MemberName),
                     MemberReferenceSignature(() => entry.Signature)
                 );
             }
@@ -1535,7 +1649,7 @@ namespace Microsoft.Metadata.Tools
                 var accessors = entry.GetAccessors();
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.EventName),
                     Token(() => accessors.Adder),
                     Token(() => accessors.Remover),
                     Token(() => accessors.Raiser),
@@ -1562,7 +1676,7 @@ namespace Microsoft.Metadata.Tools
                 var accessors = entry.GetAccessors();
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.PropertyName),
                     Token(() => accessors.Getter),
                     Token(() => accessors.Setter),
                     EnumValue<int>(() => entry.Attributes)
@@ -1605,7 +1719,7 @@ namespace Microsoft.Metadata.Tools
             for (int i = 1, count = _reader.GetTableRowCount(TableIndex.ModuleRef); i <= count; i++)
             {
                 var entry = _reader.GetModuleReference(MetadataTokens.ModuleReferenceHandle(i));
-                table.AddRow(Literal(() => entry.Name));
+                table.AddRow(Literal(() => entry.Name, StringKind.ModuleName));
             }
 
             return table;
@@ -1700,9 +1814,9 @@ namespace Microsoft.Metadata.Tools
             var entry = _reader.GetAssemblyDefinition();
 
             table.AddRow(
-                Literal(() => entry.Name),
+                Literal(() => entry.Name, StringKind.AssemblyName),
                 Version(() => entry.Version),
-                Literal(() => entry.Culture),
+                Literal(() => entry.Culture, StringKind.CultureName),
                 Literal(() => entry.PublicKey, BlobKind.Key),
                 EnumValue<int>(() => entry.Flags),
                 EnumValue<int>(() => entry.HashAlgorithm)
@@ -1727,9 +1841,9 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetAssemblyReference(handle);
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.AssemblyName),
                     Version(() => entry.Version),
-                    Literal(() => entry.Culture),
+                    Literal(() => entry.Culture, StringKind.CultureName),
                     Literal(() => entry.PublicKeyOrToken, BlobKind.Key),
                     EnumValue<int>(() => entry.Flags)
                 );
@@ -1752,7 +1866,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetAssemblyFile(handle);
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.FileName),
                     entry.ContainsMetadata ? "Yes" : "No",
                     Literal(() => entry.HashValue, BlobKind.FileHash)
                 );
@@ -1779,8 +1893,8 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetExportedType(handle);
 
                 table.AddRow(
-                    Literal(() => entry.Name),
-                    Literal(() => entry.Namespace),
+                    Literal(() => entry.Name, StringKind.TypeName),
+                    Literal(() => entry.Namespace, StringKind.NamespaceName),
                     ToString(() => ((entry.Attributes & TypeForwarder) == TypeForwarder ? "TypeForwarder, " : "") + (entry.Attributes & ~TypeForwarder).ToString()),
                     Token(() => entry.Implementation),
                     Int32Hex(() => entry.GetTypeDefinitionId())
@@ -1805,7 +1919,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetManifestResource(handle);
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.ResourceName),
                     ToString(() => entry.Attributes),
                     ToString(() => entry.Offset),
                     Token(() => entry.Implementation)
@@ -1836,7 +1950,7 @@ namespace Microsoft.Metadata.Tools
                 var aggregateEntry = (generation > 0) ? _reader.GetGenericParameter((GenericParameterHandle)GetAggregateHandle(handle, generation)) : entry;
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.GenericParamName),
                     ToString(() => entry.Index),
                     EnumValue<int>(() => entry.Attributes),
                     Token(() => entry.Parent),
@@ -1911,7 +2025,33 @@ namespace Microsoft.Metadata.Tools
             _writer.WriteLine();
         }
 
-        private void WriteStrings()
+        private int GetHeapBaseOffset<THandle>(int generation, HeapIndex heapIndex, IReadOnlyCollection<THandle> handles, Func<THandle, int> getHeapOffset)
+        {
+            if (!IsDelta)
+            {
+                return 0;
+            }
+
+            if (_aggregator != null)
+            {
+                return _readers[generation].GetHeapSize(heapIndex);
+            }
+
+            if (handles.Count == 0)
+            {
+                return 0;
+            }
+
+            // Heuristics for the scenario when we do not have all previous generation readers.
+            // Assuming the compiler does not reuse any strings/blobs from the previous generation,
+            // the minimal heap offset used the metadata tables of this generation will be the 
+            // base offset of the heap.
+            //
+            // -1 accounts for the empty string/blob that's always emitted at the start of the #String/#Blob heap.
+            return handles.Min(handle => getHeapOffset(handle)) - 1;
+        }
+
+        private void WriteStrings(int generation)
         {
             int size = _reader.GetHeapSize(HeapIndex.String);
             if (size == 0)
@@ -1919,12 +2059,18 @@ namespace Microsoft.Metadata.Tools
                 return;
             }
 
+            int baseOffset = GetHeapBaseOffset(generation, HeapIndex.String, _stringKinds.Keys, MetadataTokens.GetHeapOffset);
+
             _writer.WriteLine($"#String (size = {size}):");
             var handle = MetadataTokens.StringHandle(0);
             do
             {
-                string value = StringUtilities.EscapeNonPrintableCharacters(_reader.GetString(handle));
-                _writer.WriteLine($"  {_reader.GetHeapOffset(handle):x}: '{value}'");
+                var value = StringUtilities.EscapeNonPrintableCharacters(_reader.GetString(handle));
+
+                var aggregateOffset = baseOffset + MetadataTokens.GetHeapOffset(handle);
+                var kindDisplay = _stringKinds.TryGetValue(MetadataTokens.StringHandle(aggregateOffset), out var kind) ? $" ({kind})" : "";
+
+                _writer.WriteLine($"  {aggregateOffset:x}: '{value}'{kindDisplay}");
                 handle = _reader.GetNextHandle(handle);
             }
             while (!handle.IsNil);
@@ -1932,7 +2078,7 @@ namespace Microsoft.Metadata.Tools
             _writer.WriteLine();
         }
 
-        private void WriteBlobs()
+        private void WriteBlobs(int generation)
         {
             int heapSize = _reader.GetHeapSize(HeapIndex.Blob);
             if (heapSize == 0)
@@ -1940,20 +2086,21 @@ namespace Microsoft.Metadata.Tools
                 return;
             }
 
+            int baseOffset = GetHeapBaseOffset(generation, HeapIndex.Blob, _blobKinds.Keys, MetadataTokens.GetHeapOffset);
+
             var heapOffset = _reader.GetHeapMetadataOffset(HeapIndex.Blob);
             bool hasBadMetadata = false;
-
-            int[] sizePerKind = new int[(int)BlobKind.Count];
 
             _writer.WriteLine($"#Blob (size = {heapSize}):");
             var handle = MetadataTokens.BlobHandle(0);
             do
             {
                 byte[] value;
-                int offset = _reader.GetHeapOffset(handle);
 
-                string kindString = "";
-                string valueString = "";
+                int offset = _reader.GetHeapOffset(handle);
+                int aggregateOffset = baseOffset + offset;
+
+                string valueDisplay = "";
 
                 try
                 {
@@ -1978,29 +2125,23 @@ namespace Microsoft.Metadata.Tools
                         }
 
                         value = blobHeapReader.ReadBytes(blobHeapReader.RemainingBytes);
-                        valueString = $"{BadMetadataStr} size: {((blobSize == -1) ? "?" : blobSize.ToString())}, remaining bytes: ";
+                        valueDisplay = $"{BadMetadataStr} size: {((blobSize == -1) ? "?" : blobSize.ToString())}, remaining bytes: ";
                     }
                 }
 
-                if (_blobKinds.TryGetValue(handle, out var kind))
-                {
-                    kindString = " (" + kind + ")";
-
-                    // ignoring the compressed blob size:
-                    sizePerKind[(int)kind] += value.Length;
-                }
+                var kindDisplay = _blobKinds.TryGetValue(MetadataTokens.BlobHandle(aggregateOffset), out var kind) ? $" ({kind})" : "";
 
                 if (value.Length > 0)
                 {
                     int displayLength = (_options & MetadataVisualizerOptions.ShortenBlobs) != 0 ? Math.Min(4, value.Length) : value.Length;
-                    valueString += BitConverter.ToString(value, 0, displayLength) + (displayLength < value.Length ? "-..." : null);
+                    valueDisplay += BitConverter.ToString(value, 0, displayLength) + (displayLength < value.Length ? "-..." : null);
                 }
                 else
                 {
-                    valueString += "<empty>";
+                    valueDisplay += "<empty>";
                 }
 
-                _writer.WriteLine($"  {offset:x}{kindString}: {valueString}");
+                _writer.WriteLine($"  {aggregateOffset:x}: {valueDisplay}{kindDisplay}");
 
                 if (hasBadMetadata)
                 {
@@ -2010,20 +2151,12 @@ namespace Microsoft.Metadata.Tools
                 handle = _reader.GetNextHandle(handle);
             }
             while (!handle.IsNil);
+        }
 
-            _writer.WriteLine();
-            _writer.WriteLine("Sizes:");
-
-            for (int i = 0; i < sizePerKind.Length; i++)
-            {
-                if (sizePerKind[i] > 0)
-                {
-                    _writer.WriteLine($"  {(BlobKind)i}: {(decimal)sizePerKind[i]} bytes");
-                }
-            }
-
+        private void WriteCustomAttributeSizes()
+        {
             // don't calculate statistics for EnC delta, it's not interesting
-            if (_aggregator == null)
+            if (!IsDelta)
             {
                 _writer.WriteLine();
                 _writer.WriteLine("CustomAttribute sizes by constructor:");
@@ -2278,7 +2411,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetLocalVariable(handle);
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.LocalVariableName),
                     Int32(() => entry.Index),
                     EnumValue<int>(() => entry.Attributes)
                );
@@ -2303,7 +2436,7 @@ namespace Microsoft.Metadata.Tools
                 var entry = _reader.GetLocalConstant(handle);
 
                 table.AddRow(
-                    Literal(() => entry.Name),
+                    Literal(() => entry.Name, StringKind.ConstantName),
                     Literal(() => entry.Signature, BlobKind.LocalConstantSignature, (r, h) => FormatLocalConstant(r, (BlobHandle)h))
                );
             }
