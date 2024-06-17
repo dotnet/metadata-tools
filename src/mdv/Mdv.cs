@@ -11,6 +11,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Text;
 using Roslyn.Utilities;
 
@@ -253,6 +254,7 @@ namespace Microsoft.Metadata.Tools
                 if (generation.PEReaderOpt != null)
                 {
                     VisualizeDebugDirectory(generation.PEReaderOpt, _writer);
+                    VisualizeReadyToRunDirectory(generation.PEReaderOpt, _writer);
                 }
 
                 visualizer.VisualizeHeaders();
@@ -309,6 +311,56 @@ namespace Microsoft.Metadata.Tools
                 }
             }
 
+            writer.WriteLine();
+        }
+        
+        /// <summary>
+        /// Based on https://github.com/dotnet/coreclr/blob/master/src/inc/pedecoder.h IMAGE_FILE_MACHINE_NATIVE_OS_OVERRIDE
+        /// </summary>
+        private enum OperatingSystem
+        {
+            Apple = 0x4644,
+            FreeBSD = 0xADC4,
+            Linux = 0x7B79,
+            NetBSD = 0x1993,
+            Windows = 0,
+            Unknown = -1
+        }
+
+        private static (Machine, OperatingSystem) GetTargetMachineAndOperatingSystem(Machine machine)
+        {
+            foreach (var os in Enum.GetValues<OperatingSystem>())
+            {
+                var actualMachine = (Machine)((uint)machine ^ (uint)os);
+                if (Enum.IsDefined(actualMachine))
+                {
+                    return (machine, os);
+                }
+            }
+
+            return (machine, OperatingSystem.Unknown);
+        }
+
+        private static void VisualizeReadyToRunDirectory(PEReader peReader, TextWriter writer)
+        {
+            var managedNativeDir = peReader.PEHeaders.CorHeader.ManagedNativeHeaderDirectory;
+            if (managedNativeDir.Size == 0)
+            {
+                return;
+            }
+
+            var (machine, operatingSystem) = GetTargetMachineAndOperatingSystem(peReader.PEHeaders.CoffHeader.Machine);
+            var architecture = machine switch
+            {
+                Machine.I386 => Architecture.X86,
+                Machine.Amd64 => Architecture.X64,
+                Machine.Arm or Machine.Thumb or Machine.ArmThumb2 => Architecture.Arm,
+                Machine.Arm64 => Architecture.Arm64,
+                _ => (Architecture?)null,
+            };
+
+            writer.WriteLine("Ready2Run image:");
+            writer.WriteLine($"  Target architecture: {architecture}, operating system: {operatingSystem}, machine code: {machine}.");
             writer.WriteLine();
         }
 
