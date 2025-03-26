@@ -938,12 +938,41 @@ namespace Microsoft.Metadata.Tools
 
             if (_aggregator != null)
             {
-                Handle generationHandle = _aggregator.GetGenerationHandle(handle, out int generation);
+                Handle generationHandle;
+                int generation;
+
+                // workaround for https://github.com/dotnet/runtime/issues/113910
+                if (handle.Kind == HandleKind.Guid)
+                {
+                    generationHandle = handle;
+                    generation = -1;
+                    
+                    var guidOffset = MetadataTokens.GetHeapOffset(handle);
+                    
+                    for (int i = 0; i < _readers.Count; i++)
+                    {
+                        if (guidOffset <= _readers[i].GetHeapSize(HeapIndex.Guid) / 16)
+                        {
+                            generation = i;
+                            break;
+                        }
+                    }
+
+                    if (generation < 0)
+                    {
+                        return BadMetadataStr;
+                    }
+                }
+                else
+                {
+                    generationHandle = _aggregator.GetGenerationHandle(handle, out generation);
+                }
 
                 var generationReader = _readers[generation];
+                var offset = generationReader.GetHeapOffset(handle);
+                var generationOffset = generationReader.GetHeapOffset(generationHandle);
+
                 string value = GetValueChecked(getValue, generationReader, generationHandle);
-                int offset = generationReader.GetHeapOffset(handle);
-                int generationOffset = generationReader.GetHeapOffset(generationHandle);
 
                 if (noHeapReferences)
                 {
