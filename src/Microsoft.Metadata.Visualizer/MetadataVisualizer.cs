@@ -795,16 +795,7 @@ namespace Microsoft.Metadata.Tools
                 return BadMetadataStr;
             }
 
-            string qualifiedName;
-            try
-            {
-                qualifiedName = QualifiedName(methodSpecification.Method);
-            }
-            catch (BadImageFormatException)
-            {
-                qualifiedName = BadMetadataStr;
-            }
-
+            string qualifiedName = GetQualifiedName(methodSpecification.Method);
             string typeArguments;
             try
             {
@@ -846,6 +837,18 @@ namespace Microsoft.Metadata.Tools
             }
 
             return GetGenerationEntity(signature, (reader, handle) => Signature(reader, (BlobHandle)handle, BlobKind.TypeSpec));
+        }
+
+        public string GetQualifiedName(EntityHandle handle, TypeDefinitionHandle scope = default)
+        {
+            try
+            {
+                return QualifiedName(handle, scope) ?? BadMetadataStr;
+            }
+            catch (BadImageFormatException)
+            {
+                return BadMetadataStr;
+            }
         }
 
         private string QualifiedName(EntityHandle handle, TypeDefinitionHandle scope = default)
