@@ -88,7 +88,7 @@ namespace Microsoft.Metadata.Tools
             FileName = 1 << 16
         }
 
-        private delegate TResult FuncRef<TArg, TResult>(ref TArg arg); 
+        private delegate TResult FuncRef<TArg, TResult>(ref TArg arg);
 
         private sealed class TableBuilder
         {
@@ -135,7 +135,7 @@ namespace Microsoft.Metadata.Tools
                 string columnSeparator = "  ";
                 var columnWidths = new int[_rows.First().fields.Length];
 
-                void updateColumnWidths( string[] fields)
+                void updateColumnWidths(string[] fields)
                 {
                     for (int i = 0; i < fields.Length; i++)
                     {
@@ -210,19 +210,30 @@ namespace Microsoft.Metadata.Tools
 
         // enc map for each delta reader
         private readonly ImmutableArray<ImmutableArray<EntityHandle>> _encMaps;
+
+        /// <summary>
+        /// Maps handles of entities added in the current delta to their parent table. Constructed from EncLog table.
+        /// </summary>
         private readonly ImmutableDictionary<EntityHandle, EntityHandle> _encAddedMemberToParentMap;
 
         private int _stringHeapBaseOffset = 0;
         private int _blobHeapBaseOffset = 0;
-        private int _generation = -1;
         private MetadataReader _reader;
         private readonly Dictionary<BlobHandle, BlobKind> _blobKinds = [];
         private readonly Dictionary<StringHandle, StringKind> _stringKinds = [];
 
-        private MetadataVisualizer(TextWriter writer, IReadOnlyList<MetadataReader> readers, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
+        public MetadataVisualizer(IReadOnlyList<MetadataReader> readers, TextWriter writer, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
         {
             _writer = writer ?? throw new ArgumentNullException(nameof(writer));
             _readers = readers ?? throw new ArgumentNullException(nameof(readers));
+
+            if (readers.Count == 0)
+            {
+                throw new ArgumentException("At least one reader must be provided.", nameof(readers));
+            }
+
+            _reader = readers[readers.Count - 1];
+
             _options = options;
             _signatureVisualizer = new SignatureVisualizer(this);
 
@@ -236,19 +247,13 @@ namespace Microsoft.Metadata.Tools
             }
             else
             {
-                _encMaps = ImmutableArray<ImmutableArray<EntityHandle>>.Empty;
+                _encMaps = [];
                 _encAddedMemberToParentMap = ImmutableDictionary<EntityHandle, EntityHandle>.Empty;
             }
         }
 
         public MetadataVisualizer(MetadataReader reader, TextWriter writer, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
-            : this(writer, new[] { reader ?? throw new ArgumentNullException(nameof(reader)) }, options)
-        {
-            _reader = reader;
-        }
-
-        public MetadataVisualizer(IReadOnlyList<MetadataReader> readers, TextWriter writer, MetadataVisualizerOptions options = MetadataVisualizerOptions.None)
-            : this(writer, readers, options)
+            : this([reader ?? throw new ArgumentNullException(nameof(reader))], writer, options)
         {
         }
 
@@ -312,7 +317,6 @@ namespace Microsoft.Metadata.Tools
                 generation = _readers.Count - 1;
             }
 
-            _generation = generation;
             _reader = _readers[generation];
 
             var tables = ReadTables();
@@ -462,6 +466,12 @@ namespace Microsoft.Metadata.Tools
 
         private StandaloneSignature GetGenerationLocalSignature(StandaloneSignatureHandle handle)
             => GetGenerationEntity(handle, (reader, handle) => reader.GetStandaloneSignature((StandaloneSignatureHandle)handle));
+
+        private Parameter GetGenerationParameter(ParameterHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetParameter((ParameterHandle)handle));
+
+        private GenericParameter GetGenerationParameter(GenericParameterHandle handle)
+            => GetGenerationEntity(handle, (reader, handle) => reader.GetGenericParameter((GenericParameterHandle)handle));
 
         /// <summary>
         /// Returns entity definition that can be used to read its metadata.
@@ -703,6 +713,7 @@ namespace Microsoft.Metadata.Tools
                 handle,
                 scope,
                 entity => entity.Name,
+                getAccessorHandle: null,
                 entity => entity.GetDeclaringType(),
                 (reader, handle) => reader.GetMethodDefinition((MethodDefinitionHandle)handle));
 
@@ -711,13 +722,48 @@ namespace Microsoft.Metadata.Tools
                 handle,
                 scope,
                 entity => entity.Name,
+                getAccessorHandle: null,
                 entity => entity.GetDeclaringType(),
                 (reader, handle) => reader.GetFieldDefinition((FieldDefinitionHandle)handle));
+
+        private string QualifiedEventName(EventDefinitionHandle handle, TypeDefinitionHandle scope = default)
+            => QualifiedMemberName(
+                handle,
+                scope,
+                entity => entity.Name,
+                getAccessorHandle: entity => 
+                {
+                    var accessors = entity.GetAccessors();
+                    return 
+                        !accessors.Adder.IsNil ? accessors.Adder :
+                        !accessors.Remover.IsNil ? accessors.Remover :
+                        !accessors.Raiser.IsNil ? accessors.Raiser :
+                        accessors.Others.FirstOrDefault();
+                },
+                declaringTypeGetter: _ => throw new InvalidOperationException(),
+                (reader, handle) => reader.GetEventDefinition((EventDefinitionHandle)handle));
+
+        private string QualifiedPropertyName(PropertyDefinitionHandle handle, TypeDefinitionHandle scope = default)
+            => QualifiedMemberName(
+                handle,
+                scope,
+                entity => entity.Name,
+                getAccessorHandle: entity =>
+                {
+                    var accessors = entity.GetAccessors();
+                    return
+                        !accessors.Getter.IsNil ? accessors.Getter :
+                        !accessors.Setter.IsNil ? accessors.Setter :
+                        accessors.Others.FirstOrDefault();
+                },
+                declaringTypeGetter: _ => throw new InvalidOperationException(),
+                (reader, handle) => reader.GetPropertyDefinition((PropertyDefinitionHandle)handle));
 
         private string QualifiedMemberName<TMemberEntity>(
             EntityHandle memberHandle,
             TypeDefinitionHandle scope,
             Func<TMemberEntity, StringHandle> nameGetter,
+            Func<TMemberEntity, MethodDefinitionHandle> getAccessorHandle,
             Func<TMemberEntity, TypeDefinitionHandle> declaringTypeGetter,
             Func<MetadataReader, Handle, TMemberEntity> entityGetter)
         {
@@ -729,7 +775,23 @@ namespace Microsoft.Metadata.Tools
             try
             {
                 var member = GetGenerationEntity(memberHandle, entityGetter);
-                var declaringTypeDefHandle = _encAddedMemberToParentMap.TryGetValue(memberHandle, out var parentHandle) ? (TypeDefinitionHandle)parentHandle : declaringTypeGetter(member);
+
+                TypeDefinitionHandle declaringTypeDefHandle;
+                if (getAccessorHandle != null)
+                {
+                    var accessorHandle = getAccessorHandle(member);
+                    var methodDef = GetGenerationEntity(accessorHandle, (reader, handle) => reader.GetMethodDefinition(accessorHandle));
+
+                    declaringTypeDefHandle = _encAddedMemberToParentMap.TryGetValue(accessorHandle, out var parentHandle)
+                        ? (TypeDefinitionHandle)parentHandle
+                        : methodDef.GetDeclaringType();
+                }
+                else
+                {
+                    declaringTypeDefHandle = _encAddedMemberToParentMap.TryGetValue(memberHandle, out var parentHandle)
+                        ? (TypeDefinitionHandle)parentHandle
+                        : declaringTypeGetter(member);
+                }
 
                 var typeQualification = declaringTypeDefHandle != scope && !declaringTypeDefHandle.IsNil ? QualifiedTypeDefinitionName(declaringTypeDefHandle) + "." : "";
                 var memberName = GetString(nameGetter(member));
@@ -843,7 +905,7 @@ namespace Microsoft.Metadata.Tools
         {
             try
             {
-                return QualifiedName(handle, scope) ?? BadMetadataStr;
+                return QualifiedName(handle, scope);
             }
             catch (BadImageFormatException)
             {
@@ -857,10 +919,16 @@ namespace Microsoft.Metadata.Tools
                 HandleKind.TypeDefinition => QualifiedTypeDefinitionName((TypeDefinitionHandle)handle),
                 HandleKind.MethodDefinition => QualifiedMethodName((MethodDefinitionHandle)handle, scope),
                 HandleKind.FieldDefinition => QualifiedFieldName((FieldDefinitionHandle)handle, scope),
+                HandleKind.EventDefinition => QualifiedEventName((EventDefinitionHandle)handle, scope),
+                HandleKind.PropertyDefinition => QualifiedPropertyName((PropertyDefinitionHandle)handle, scope),
                 HandleKind.MemberReference => QualifiedMemberReferenceName((MemberReferenceHandle)handle),
                 HandleKind.TypeReference => QualifiedTypeReferenceName((TypeReferenceHandle)handle),
                 HandleKind.MethodSpecification => QualifiedMethodSpecificationName((MethodSpecificationHandle)handle),
                 HandleKind.TypeSpecification => QualifiedTypeSpecificationName((TypeSpecificationHandle)handle),
+                HandleKind.Parameter => GetGenerationParameter((ParameterHandle)handle).Name is { IsNil: false } name ? GetString(name) : "<nil>",
+                HandleKind.GenericParameter => GetGenerationParameter((GenericParameterHandle)handle).Name is { IsNil: false } name ? GetString(name) : "<nil>",
+                HandleKind.ModuleDefinition => GetString(_reader.GetModuleDefinition().Name),
+                HandleKind.AssemblyDefinition => GetString(_reader.GetAssemblyDefinition().Name),
                 _ => null
             };
 
@@ -2591,6 +2659,9 @@ namespace Microsoft.Metadata.Tools
                     return false;
             }
         }
+
+        public void WriteImportScope()
+          => WriteTable(ReadImportScopeTable());
 
         private TableBuilder ReadImportScopeTable()
         {
