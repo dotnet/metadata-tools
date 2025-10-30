@@ -3,6 +3,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>net472;$(NetMinimum);$(NetCurrent)</TargetFrameworks>
+    <RollForward>LatestMajor</RollForward>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
