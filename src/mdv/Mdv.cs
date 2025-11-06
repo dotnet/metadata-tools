@@ -64,8 +64,6 @@ namespace Microsoft.Metadata.Tools
             return "0x" + value.ToString(format, CultureInfo.InvariantCulture);
         }
 
-        private static string FormatTimeDateStamp(int timeDateStamp) => FormatHex(unchecked((uint)timeDateStamp));
-
         private static void VisualizeDataDirectory(TextWriter writer, string name, DirectoryEntry entry)
         {
             if (entry.RelativeVirtualAddress == 0 && entry.Size == 0)
@@ -336,7 +334,7 @@ namespace Microsoft.Metadata.Tools
             var coffHeader = headers.CoffHeader;
             writer.WriteLine($"  Machine: {coffHeader.Machine}");
             writer.WriteLine($"  NumberOfSections: {coffHeader.NumberOfSections}");
-            writer.WriteLine($"  TimeDateStamp: {FormatTimeDateStamp(coffHeader.TimeDateStamp)}");
+            writer.WriteLine($"  TimeDateStamp: {FormatHex(unchecked((uint)coffHeader.TimeDateStamp))}");
             writer.WriteLine($"  PointerToSymbolTable: {FormatHex(unchecked((uint)coffHeader.PointerToSymbolTable))}");
             writer.WriteLine($"  NumberOfSymbols: {coffHeader.NumberOfSymbols}");
             writer.WriteLine($"  SizeOfOptionalHeader: {coffHeader.SizeOfOptionalHeader}");
