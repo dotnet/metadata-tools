@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -49,6 +50,28 @@ namespace Microsoft.Metadata.Tools
         public void Dispose()
         {
             _writer.Dispose();
+        }
+
+        private static string FormatHex(uint value, int width = 8)
+        {
+            var format = $"X{width}";
+            return "0x" + value.ToString(format, CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatHex(ulong value, int width = 16)
+        {
+            var format = $"X{width}";
+            return "0x" + value.ToString(format, CultureInfo.InvariantCulture);
+        }
+
+        private static void VisualizeDataDirectory(TextWriter writer, string name, DirectoryEntry entry)
+        {
+            if (entry.RelativeVirtualAddress == 0 && entry.Size == 0)
+            {
+                return;
+            }
+
+            writer.WriteLine($"      {name}: RVA={FormatHex((uint)entry.RelativeVirtualAddress)} Size={FormatHex((uint)entry.Size)}");
         }
 
         private void WriteData(string line, params object[] args)
@@ -253,6 +276,11 @@ namespace Microsoft.Metadata.Tools
 
                 if (generation.PEReaderOpt != null)
                 {
+                    if (_arguments.DisplayPEHeaders)
+                    {
+                        VisualizePEHeaders(generation.PEReaderOpt, _writer);
+                    }
+
                     VisualizeDebugDirectory(generation.PEReaderOpt, _writer);
                     VisualizeReadyToRunDirectory(generation.PEReaderOpt, _writer);
                 }
@@ -279,6 +307,116 @@ namespace Microsoft.Metadata.Tools
 
                 VisualizeMemberRefs(mdReader);
             }
+        }
+
+        private static void VisualizePEHeaders(PEReader peReader, TextWriter writer)
+        {
+            PEHeaders headers;
+            try
+            {
+                headers = peReader.PEHeaders;
+            }
+            catch (BadImageFormatException)
+            {
+                writer.WriteLine("PE Headers:");
+                writer.WriteLine("  <bad image>");
+                writer.WriteLine();
+                return;
+            }
+
+            if (headers == null)
+            {
+                return;
+            }
+
+            writer.WriteLine("PE Headers:");
+
+            var coffHeader = headers.CoffHeader;
+            writer.WriteLine($"  Machine: {coffHeader.Machine}");
+            writer.WriteLine($"  NumberOfSections: {coffHeader.NumberOfSections}");
+            writer.WriteLine($"  TimeDateStamp: {FormatHex(unchecked((uint)coffHeader.TimeDateStamp))}");
+            writer.WriteLine($"  PointerToSymbolTable: {FormatHex(unchecked((uint)coffHeader.PointerToSymbolTable))}");
+            writer.WriteLine($"  NumberOfSymbols: {coffHeader.NumberOfSymbols}");
+            writer.WriteLine($"  SizeOfOptionalHeader: {coffHeader.SizeOfOptionalHeader}");
+            writer.WriteLine($"  Characteristics: {FormatHex((uint)coffHeader.Characteristics, 4)} ({coffHeader.Characteristics})");
+
+            var optionalHeader = headers.PEHeader;
+            if (optionalHeader != null)
+            {
+                int addressWidth = optionalHeader.Magic == PEMagic.PE32 ? 8 : 16;
+
+                writer.WriteLine("  OptionalHeader:");
+                writer.WriteLine($"    Magic: {optionalHeader.Magic}");
+                writer.WriteLine($"    MajorLinkerVersion: {optionalHeader.MajorLinkerVersion}");
+                writer.WriteLine($"    MinorLinkerVersion: {optionalHeader.MinorLinkerVersion}");
+                writer.WriteLine($"    SizeOfCode: {FormatHex((uint)optionalHeader.SizeOfCode)}");
+                writer.WriteLine($"    SizeOfInitializedData: {FormatHex((uint)optionalHeader.SizeOfInitializedData)}");
+                writer.WriteLine($"    SizeOfUninitializedData: {FormatHex((uint)optionalHeader.SizeOfUninitializedData)}");
+                writer.WriteLine($"    AddressOfEntryPoint: {FormatHex((uint)optionalHeader.AddressOfEntryPoint)}");
+                writer.WriteLine($"    BaseOfCode: {FormatHex((uint)optionalHeader.BaseOfCode)}");
+                if (optionalHeader.Magic == PEMagic.PE32)
+                {
+                    writer.WriteLine($"    BaseOfData: {FormatHex((uint)optionalHeader.BaseOfData)}");
+                }
+
+                writer.WriteLine($"    ImageBase: {FormatHex(optionalHeader.ImageBase, addressWidth)}");
+                writer.WriteLine($"    SectionAlignment: {FormatHex((uint)optionalHeader.SectionAlignment)}");
+                writer.WriteLine($"    FileAlignment: {FormatHex((uint)optionalHeader.FileAlignment)}");
+                writer.WriteLine($"    OperatingSystemVersion: {optionalHeader.MajorOperatingSystemVersion}.{optionalHeader.MinorOperatingSystemVersion}");
+                writer.WriteLine($"    ImageVersion: {optionalHeader.MajorImageVersion}.{optionalHeader.MinorImageVersion}");
+                writer.WriteLine($"    SubsystemVersion: {optionalHeader.MajorSubsystemVersion}.{optionalHeader.MinorSubsystemVersion}");
+                writer.WriteLine($"    SizeOfImage: {FormatHex((uint)optionalHeader.SizeOfImage)}");
+                writer.WriteLine($"    SizeOfHeaders: {FormatHex((uint)optionalHeader.SizeOfHeaders)}");
+                writer.WriteLine($"    CheckSum: {FormatHex((uint)optionalHeader.CheckSum)}");
+                writer.WriteLine($"    Subsystem: {optionalHeader.Subsystem}");
+                writer.WriteLine($"    DllCharacteristics: {FormatHex((uint)optionalHeader.DllCharacteristics, 4)} ({optionalHeader.DllCharacteristics})");
+                writer.WriteLine($"    SizeOfStackReserve: {FormatHex(optionalHeader.SizeOfStackReserve, addressWidth)}");
+                writer.WriteLine($"    SizeOfStackCommit: {FormatHex(optionalHeader.SizeOfStackCommit, addressWidth)}");
+                writer.WriteLine($"    SizeOfHeapReserve: {FormatHex(optionalHeader.SizeOfHeapReserve, addressWidth)}");
+                writer.WriteLine($"    SizeOfHeapCommit: {FormatHex(optionalHeader.SizeOfHeapCommit, addressWidth)}");
+                writer.WriteLine($"    NumberOfRvaAndSizes: {optionalHeader.NumberOfRvaAndSizes}");
+
+                if (optionalHeader.NumberOfRvaAndSizes > 0)
+                {
+                    writer.WriteLine("    DataDirectories:");
+                    VisualizeDataDirectory(writer, "ExportTable", optionalHeader.ExportTableDirectory);
+                    VisualizeDataDirectory(writer, "ImportTable", optionalHeader.ImportTableDirectory);
+                    VisualizeDataDirectory(writer, "ResourceTable", optionalHeader.ResourceTableDirectory);
+                    VisualizeDataDirectory(writer, "ExceptionTable", optionalHeader.ExceptionTableDirectory);
+                    VisualizeDataDirectory(writer, "CertificateTable", optionalHeader.CertificateTableDirectory);
+                    VisualizeDataDirectory(writer, "BaseRelocationTable", optionalHeader.BaseRelocationTableDirectory);
+                    VisualizeDataDirectory(writer, "DebugTable", optionalHeader.DebugTableDirectory);
+                    VisualizeDataDirectory(writer, "CopyrightTable", optionalHeader.CopyrightTableDirectory);
+                    VisualizeDataDirectory(writer, "GlobalPointerTable", optionalHeader.GlobalPointerTableDirectory);
+                    VisualizeDataDirectory(writer, "ThreadLocalStorageTable", optionalHeader.ThreadLocalStorageTableDirectory);
+                    VisualizeDataDirectory(writer, "LoadConfigTable", optionalHeader.LoadConfigTableDirectory);
+                    VisualizeDataDirectory(writer, "BoundImportTable", optionalHeader.BoundImportTableDirectory);
+                    VisualizeDataDirectory(writer, "ImportAddressTable", optionalHeader.ImportAddressTableDirectory);
+                    VisualizeDataDirectory(writer, "DelayImportTable", optionalHeader.DelayImportTableDirectory);
+                    VisualizeDataDirectory(writer, "CorHeader", optionalHeader.CorHeaderTableDirectory);
+                }
+            }
+
+            var sectionHeaders = headers.SectionHeaders;
+            if (sectionHeaders.Length > 0)
+            {
+                writer.WriteLine("  Sections:");
+                foreach (var section in sectionHeaders)
+                {
+                    writer.WriteLine($"    {section.Name}:");
+                    writer.WriteLine($"      VirtualSize: {FormatHex(unchecked((uint)section.VirtualSize))}");
+                    writer.WriteLine($"      VirtualAddress: {FormatHex(unchecked((uint)section.VirtualAddress))}");
+                    writer.WriteLine($"      SizeOfRawData: {FormatHex(unchecked((uint)section.SizeOfRawData))}");
+                    writer.WriteLine($"      PointerToRawData: {FormatHex(unchecked((uint)section.PointerToRawData))}");
+                    writer.WriteLine($"      PointerToRelocations: {FormatHex(unchecked((uint)section.PointerToRelocations))}");
+                    writer.WriteLine($"      PointerToLineNumbers: {FormatHex(unchecked((uint)section.PointerToLineNumbers))}");
+                    writer.WriteLine($"      NumberOfRelocations: {section.NumberOfRelocations}");
+                    writer.WriteLine($"      NumberOfLineNumbers: {section.NumberOfLineNumbers}");
+                    writer.WriteLine($"      Characteristics: {FormatHex((uint)section.SectionCharacteristics)} ({section.SectionCharacteristics})");
+                }
+            }
+
+            writer.WriteLine();
         }
 
         private static void VisualizeDebugDirectory(PEReader peReader, TextWriter writer)

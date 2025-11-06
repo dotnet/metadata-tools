@@ -22,6 +22,7 @@ internal sealed class Arguments
     public bool DisplayEmbeddedPdb { get; private set; }
     public bool DisplayMetadata { get; private set; }
     public bool DisplayEmbeddedSource { get; private set; }
+    public bool DisplayPEHeaders { get; private set; }
     public string OutputPath { get; private set; }
     public ImmutableArray<string> FindRefs { get; private set; }
 
@@ -36,6 +37,7 @@ Parameters:
 /il[+|-]                                  Display/hide IL of method bodies.
 /md[+|-]                                  Display/hide metadata tables.
 /embeddedSource[+|-]                      Display/hide embedded source.
+/peHeaders[+|-]                           Display/hide PE headers.
 /embeddedPdb[+|-]                         Display embedded PDB insted of the type system metadata.
 /findRef:<MemberRefs>                     Displays all assemblies containing the specified MemberRefs: 
                                           a semicolon separated list of 
@@ -100,6 +102,7 @@ If /g is specified the path must be baseline PE file (generation 0).
         result.DisplayStatistics = ParseFlagArg(args, "stats", defaultValue: result.Recursive && !findRefs);
         result.DisplayAssemblyReferences = ParseFlagArg(args, "stats", defaultValue: !findRefs);
         result.DisplayEmbeddedSource = ParseFlagArg(args, "embeddedSource", defaultValue: false);
+        result.DisplayPEHeaders = ParseFlagArg(args, "peHeaders", defaultValue: false);
         result.OutputPath = ParseValueArg(args, "out");
 
         if (result.DisplayEmbeddedPdb && !result.EncDeltas.IsEmpty)
@@ -160,4 +163,3 @@ If /g is specified the path must be baseline PE file (generation 0).
         return true;
     }
 }
-
