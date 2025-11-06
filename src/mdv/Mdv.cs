@@ -39,25 +39,6 @@ namespace Microsoft.Metadata.Tools
         private readonly Arguments _arguments;
         private readonly TextWriter _writer;
 
-        private static readonly (string Name, Func<PEHeader, DirectoryEntry> Accessor)[] s_peDataDirectories =
-        {
-            ("ExportTable", header => header.ExportTableDirectory),
-            ("ImportTable", header => header.ImportTableDirectory),
-            ("ResourceTable", header => header.ResourceTableDirectory),
-            ("ExceptionTable", header => header.ExceptionTableDirectory),
-            ("CertificateTable", header => header.CertificateTableDirectory),
-            ("BaseRelocationTable", header => header.BaseRelocationTableDirectory),
-            ("DebugTable", header => header.DebugTableDirectory),
-            ("CopyrightTable", header => header.CopyrightTableDirectory),
-            ("GlobalPointerTable", header => header.GlobalPointerTableDirectory),
-            ("ThreadLocalStorageTable", header => header.ThreadLocalStorageTableDirectory),
-            ("LoadConfigTable", header => header.LoadConfigTableDirectory),
-            ("BoundImportTable", header => header.BoundImportTableDirectory),
-            ("ImportAddressTable", header => header.ImportAddressTableDirectory),
-            ("DelayImportTable", header => header.DelayImportTableDirectory),
-            ("CorHeader", header => header.CorHeaderTableDirectory),
-        };
-
         private string _pendingTitle;
 
         public Mdv(Arguments arguments)
@@ -84,6 +65,16 @@ namespace Microsoft.Metadata.Tools
         }
 
         private static string FormatTimeDateStamp(int timeDateStamp) => FormatHex(unchecked((uint)timeDateStamp));
+
+        private static void VisualizeDataDirectory(TextWriter writer, string name, DirectoryEntry entry)
+        {
+            if (entry.RelativeVirtualAddress == 0 && entry.Size == 0)
+            {
+                return;
+            }
+
+            writer.WriteLine($"      {name}: RVA={FormatHex((uint)entry.RelativeVirtualAddress)} Size={FormatHex((uint)entry.Size)}");
+        }
 
         private void WriteData(string line, params object[] args)
         {
@@ -390,16 +381,21 @@ namespace Microsoft.Metadata.Tools
                 if (optionalHeader.NumberOfRvaAndSizes > 0)
                 {
                     writer.WriteLine("    DataDirectories:");
-                    foreach (var (name, accessor) in s_peDataDirectories)
-                    {
-                        DirectoryEntry entry = accessor(optionalHeader);
-                        if (entry.RelativeVirtualAddress == 0 && entry.Size == 0)
-                        {
-                            continue;
-                        }
-
-                        writer.WriteLine($"      {name}: RVA={FormatHex((uint)entry.RelativeVirtualAddress)} Size={FormatHex((uint)entry.Size)}");
-                    }
+                    VisualizeDataDirectory(writer, "ExportTable", optionalHeader.ExportTableDirectory);
+                    VisualizeDataDirectory(writer, "ImportTable", optionalHeader.ImportTableDirectory);
+                    VisualizeDataDirectory(writer, "ResourceTable", optionalHeader.ResourceTableDirectory);
+                    VisualizeDataDirectory(writer, "ExceptionTable", optionalHeader.ExceptionTableDirectory);
+                    VisualizeDataDirectory(writer, "CertificateTable", optionalHeader.CertificateTableDirectory);
+                    VisualizeDataDirectory(writer, "BaseRelocationTable", optionalHeader.BaseRelocationTableDirectory);
+                    VisualizeDataDirectory(writer, "DebugTable", optionalHeader.DebugTableDirectory);
+                    VisualizeDataDirectory(writer, "CopyrightTable", optionalHeader.CopyrightTableDirectory);
+                    VisualizeDataDirectory(writer, "GlobalPointerTable", optionalHeader.GlobalPointerTableDirectory);
+                    VisualizeDataDirectory(writer, "ThreadLocalStorageTable", optionalHeader.ThreadLocalStorageTableDirectory);
+                    VisualizeDataDirectory(writer, "LoadConfigTable", optionalHeader.LoadConfigTableDirectory);
+                    VisualizeDataDirectory(writer, "BoundImportTable", optionalHeader.BoundImportTableDirectory);
+                    VisualizeDataDirectory(writer, "ImportAddressTable", optionalHeader.ImportAddressTableDirectory);
+                    VisualizeDataDirectory(writer, "DelayImportTable", optionalHeader.DelayImportTableDirectory);
+                    VisualizeDataDirectory(writer, "CorHeader", optionalHeader.CorHeaderTableDirectory);
                 }
             }
 
