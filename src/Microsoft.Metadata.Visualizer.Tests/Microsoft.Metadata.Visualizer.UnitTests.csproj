@@ -2,14 +2,10 @@
 <!-- Licensed to the .NET Foundation under one or more agreements. The .NET Foundation licenses this file to you under the MIT license. See the License.txt file in the project root for more information. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net472;$(NetMinimum);$(NetCurrent)</TargetFrameworks>
-    <RollForward>LatestMajor</RollForward>
+    <TargetFrameworks>net472;$(NetCurrent)</TargetFrameworks>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Microsoft.Metadata.Visualizer\Microsoft.Metadata.Visualizer.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != 'net472'">
-    <ProjectReference Include="..\mdv\mdv.csproj" />
   </ItemGroup>
 </Project>

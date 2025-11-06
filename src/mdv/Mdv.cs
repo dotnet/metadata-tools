@@ -83,26 +83,7 @@ namespace Microsoft.Metadata.Tools
             return "0x" + value.ToString(format, CultureInfo.InvariantCulture);
         }
 
-        private static string FormatTimeDateStamp(int timeDateStamp)
-        {
-            uint value = unchecked((uint)timeDateStamp);
-            string hex = FormatHex(value);
-
-            if (value == 0)
-            {
-                return hex;
-            }
-
-            try
-            {
-                var timestamp = DateTimeOffset.FromUnixTimeSeconds(value);
-                return $"{hex} ({timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} UTC)";
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                return hex;
-            }
-        }
+        private static string FormatTimeDateStamp(int timeDateStamp) => FormatHex(unchecked((uint)timeDateStamp));
 
         private void WriteData(string line, params object[] args)
         {
