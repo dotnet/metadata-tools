@@ -496,6 +496,8 @@ namespace Microsoft.Metadata.Tools
         private static readonly Guid s_FSharpGuid = new Guid("ab4f38c9-b6e6-43ba-be3b-58080b2ccce3");
         private static readonly Guid s_sha1Guid = new Guid("ff1816ec-aa5e-4d10-87f7-6f4963833460");
         private static readonly Guid s_sha256Guid = new Guid("8829d00f-11b8-4213-878b-770e8597ac16");
+        private static readonly Guid s_sha384Guid = new Guid("d99cfeb1-8c43-444a-8a6c-b61269d2a0bf");
+        private static readonly Guid s_sha512Guid = new Guid("ef2d1afc-6550-46d6-b14b-d70afe9a5566");
 
         private static string GetLanguage(Guid guid)
         {
@@ -510,6 +512,8 @@ namespace Microsoft.Metadata.Tools
         {
             if (guid == s_sha1Guid) return "SHA-1";
             if (guid == s_sha256Guid) return "SHA-256";
+            if (guid == s_sha384Guid) return "SHA-384";
+            if (guid == s_sha512Guid) return "SHA-512";
 
             return "{" + guid + "}";
         }
