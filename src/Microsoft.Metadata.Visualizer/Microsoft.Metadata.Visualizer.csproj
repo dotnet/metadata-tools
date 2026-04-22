@@ -13,6 +13,7 @@
     <PackageTags>EMCA-335 metadata Portable PDB visualizer</PackageTags>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="System.Reflection.Metadata" />
     <PackageReference Include="Microsoft.CodeAnalysis.PooledObjects" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.Debugging" PrivateAssets="all" />
   </ItemGroup>
